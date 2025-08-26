@@ -11,7 +11,7 @@ from core.unet import UNet
 from core.gs import GaussianRenderer
 from kiui.lpips import LPIPS
 from core.utils import get_rays
-from torchmetrics import PeakSignalNoiseRatio, StructuralSimilarityIndexMeasure
+from torchmetrics.image import PeakSignalNoiseRatio, StructuralSimilarityIndexMeasure
 
 
 

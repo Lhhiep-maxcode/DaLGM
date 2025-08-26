@@ -123,6 +123,8 @@ def main():
         model.train()
         total_loss = 0
         total_psnr = 0
+        total_ssim = 0
+        total_lpips = 0
         # Create tqdm only on main process
         if accelerator.is_main_process:
             print(f"----------Epoch {epoch + 1}----------")
@@ -220,6 +222,8 @@ def main():
         with torch.no_grad():
             model.eval()
             total_psnr = 0
+            total_ssim = 0
+            total_lpips = 0
             if accelerator.is_main_process:
                 pbar2 = tqdm(test_dataloader, desc=f"[E] E{epoch + 1}/{cfg.num_epochs}")
 
