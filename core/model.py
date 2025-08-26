@@ -11,6 +11,8 @@ from core.unet import UNet
 from core.gs import GaussianRenderer
 from kiui.lpips import LPIPS
 from core.utils import get_rays
+from torchmetrics import PeakSignalNoiseRatio, StructuralSimilarityIndexMeasure
+
 
 
 class LGM(nn.Module):
@@ -45,6 +47,9 @@ class LGM(nn.Module):
 
         self.lpips_loss = LPIPS(net='vgg')
         self.lpips_loss.requires_grad_(False)
+
+        self.psnr_metric = PeakSignalNoiseRatio(data_range=1.0)
+        self.ssim_metric = StructuralSimilarityIndexMeasure(data_range=1.0)
 
     def load_state_dict(self, state_dict, strict=True, assign=False):
         # ignore lpips_loss mismatch
@@ -191,7 +196,21 @@ class LGM(nn.Module):
 
         # metric
         with torch.no_grad():
+            B, V, C, H, W = pred_images.shape
+
+            # PSNR
             psnr = -10 * torch.log10(torch.mean((pred_images.detach() - gt_images) ** 2))
             results['psnr'] = psnr
+            
+            # SSIM
+            ssim = self.ssim_metric(pred_images.view(B * V, C, H, W), gt_images.view(B * V, C, H, W))
+            results['ssim'] = ssim
+
+            # LPIPS
+            lpips = self.lpips_loss(
+                F.interpolate(gt_images.view(-1, 3, self.cfg.output_size, self.cfg.output_size) * 2 - 1, (256, 256), mode='bilinear', align_corners=False),
+                F.interpolate(pred_images.view(-1, 3, self.cfg.output_size, self.cfg.output_size) * 2 - 1, (256, 256), mode='bilinear', align_corners=False),
+            ).mean()
+            results['lpips'] = lpips
 
         return results

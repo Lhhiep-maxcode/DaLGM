@@ -142,6 +142,8 @@ def main():
                 out = model(data, lambda_mse, lambda_lpips, lambda_top)
                 loss = out['loss']
                 psnr = out['psnr']
+                ssim = out['ssim']
+                lpips = out['lpips']
 
                 accelerator.backward(loss)
 
@@ -155,6 +157,8 @@ def main():
 
                 total_loss += loss.detach()
                 total_psnr += psnr.detach()
+                total_ssim += ssim.detach()
+                total_lpips += lpips.detach()
 
             if accelerator.is_main_process:
                 pbar.update(1)
@@ -171,7 +175,9 @@ def main():
                         "lambda MSE (10 steps)": lambda_mse, 
                         "lambda LPIPS (10 steps)": lambda_lpips,
                         "Train loss (10 steps)": loss.detach(), 
-                        "Train psnr (10 steps)": psnr.detach()
+                        "Train psnr (10 steps)": psnr.detach(),
+                        "Train ssim (10 steps)": ssim.detach(),
+                        "Train lpips (10 steps)": lpips.detach(),
                     })
 
                 # save log images
@@ -202,8 +208,10 @@ def main():
         if accelerator.is_main_process:
             total_loss /= len(train_dataloader)
             total_psnr /= len(train_dataloader)
-            accelerator.print(f"[TRAIN INFO] Epoch: {epoch + 1} loss: {total_loss:.6f} psnr: {total_psnr:.4f}")
-            run.log({"Train loss (Epoch)": total_loss, "Train psnr (Epoch)": total_psnr})
+            total_ssim /= len(train_dataloader)
+            total_lpips /= len(train_dataloader)
+            accelerator.print(f"[TRAIN INFO] Epoch: {epoch + 1} loss: {total_loss:.6f} psnr: {total_psnr:.4f} ssim: {total_ssim:.4f} lpips: {total_lpips:.4f}")
+            run.log({"Train loss (Epoch)": total_loss, "Train psnr (Epoch)": total_psnr, "Train ssim (Epoch)": total_ssim, "Train lpips (Epoch)": total_lpips})
 
         accelerator.wait_for_everyone()
         accelerator.save_state(output_dir=f'{cfg.workspace}/lastest')
@@ -219,7 +227,11 @@ def main():
                 out = model(data)
 
                 psnr = out['psnr']
+                ssim = out['ssim']
+                lpips = out['lpips']
                 total_psnr += psnr.detach()
+                total_ssim += ssim.detach()
+                total_lpips += lpips.detach()
 
                 if accelerator.is_main_process:
                     pbar2.update(1)
@@ -239,8 +251,10 @@ def main():
             total_psnr = accelerator.gather_for_metrics(total_psnr).mean()
             if accelerator.is_main_process:
                 total_psnr /= len(test_dataloader)
-                run.log({"Test psnr (Epoch)": total_psnr})
-                accelerator.print(f"[EVAL INFO] Epoch: {epoch + 1} psnr: {total_psnr:.4f}")
+                total_ssim /= len(test_dataloader)
+                total_lpips /= len(test_dataloader)
+                run.log({"Test psnr (Epoch)": total_psnr, "Test ssim (Epoch)": total_ssim, "Test lpips (Epoch)": total_lpips})
+                accelerator.print(f"[EVAL INFO] Epoch: {epoch + 1} psnr: {total_psnr:.4f} ssim: {total_ssim:.4f} lpips: {total_lpips:.4f}")
 
             if total_psnr > best_psnr_eval:
                 best_psnr_eval = total_psnr
