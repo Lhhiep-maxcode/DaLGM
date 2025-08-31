@@ -182,7 +182,7 @@ class ObjaverseDataset(Dataset):
             image = image.astype(np.float32) / 255.0
             image = torch.from_numpy(image)  # shape: [H, W, C]
             
-            c2w = torch.from_numpy(orbit_camera(self.cam_config[0], self.cam_config[1], radius=self.cfg.cam_radius, opengl=True))
+            c2w = torch.from_numpy(orbit_camera(-self.cam_config[0], self.cam_config[1], radius=self.cfg.cam_radius, opengl=True))
 
             # scale up radius to make model make scale predictions
             c2w[:3, 3] *= self.cfg.cam_radius / 1.5 # 1.5 is the default scale of the dataset
