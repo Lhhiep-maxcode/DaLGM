@@ -85,6 +85,43 @@ class ObjaverseDataset(Dataset):
                                24,]                # L4
         
         self.test_view_ids = [i for i in range(cfg.num_views_total)]
+        self.cam_config = {
+            # this is the params to pass into kiui.orbit_camera() function
+            # (elevation, azimuth)
+            # elevation = 0
+            0: [0, 0],
+            1: [0, 45],
+            2: [0, 90],
+            3: [0, 135],
+            4: [0, 180],
+            5: [0, 225],
+            6: [0, 270],
+            7: [0, 315],
+
+            # elevation = 30
+            8: [30, 0],
+            9: [30, 45],
+            10: [30, 90],
+            11: [30, 135],
+            12: [30, 180],
+            13: [30, 225],
+            14: [30, 270],
+            15: [30, 315],
+
+            # elevation = 60
+            16: [60, 0],
+            17: [60, 45],
+            18: [60, 90],
+            19: [60, 135],
+            20: [60, 180],
+            21: [60, 225],
+            22: [60, 270],
+            23: [60, 315],
+
+            # elevation = 90,
+            24: [89.89, 0]
+        }
+
 
     def __len__(self):
         return len(self.items)
@@ -128,34 +165,24 @@ class ObjaverseDataset(Dataset):
             image_path = os.path.join(item_path, 'rgb', f'{view_id:03d}.png')
             camera_path = os.path.join(item_path, 'pose', f'{view_id:03d}.txt') 
 
-            try:
-                image = cv2.imread(image_path, cv2.IMREAD_UNCHANGED)  # shape: [512, 512, 4]
-                alpha = image[:, :, 3]
-                bbox = find_nonzero_bbox(alpha)
-                if bbox is None:
-                    print(f"Fully transparent image at {item_path}")
-                    bbox = (1e9, -1, 1e9, -1)
-                
-                ymin, ymax, xmin, xmax = bbox
-                global_ymin = min(global_ymin, ymin)
-                global_ymax = max(global_ymax, ymax)
-                global_xmin = min(global_xmin, xmin)
-                global_xmax = max(global_xmax, xmax)
-
-                image = image.astype(np.float32) / 255.0
-                image = torch.from_numpy(image)  # shape: [H, W, C]
-                
-                with open(camera_path, 'r') as f:
-                    lines = f.readlines()
-                    
-                    # OpenGL camera matrix: [4, 4]
-                    c2w = torch.tensor([list(map(float, line.strip().split())) for line in lines]).reshape(4, 4)
-            except Exception as e:
-                print(f"Failed to load view id {view_id}:", e)
-                continue
+            # try:
+            image = cv2.imread(image_path, cv2.IMREAD_UNCHANGED)  # shape: [512, 512, 4]
+            alpha = image[:, :, 3]
+            bbox = find_nonzero_bbox(alpha)
+            if bbox is None:
+                print(f"Fully transparent image at {item_path}")
+                bbox = (1e9, -1, 1e9, -1)
             
-            if view_id == 24:
-                c2w = torch.from_numpy(orbit_camera(89.9, 0, radius=self.cfg.cam_radius, opengl=True))
+            ymin, ymax, xmin, xmax = bbox
+            global_ymin = min(global_ymin, ymin)
+            global_ymax = max(global_ymax, ymax)
+            global_xmin = min(global_xmin, xmin)
+            global_xmax = max(global_xmax, xmax)
+
+            image = image.astype(np.float32) / 255.0
+            image = torch.from_numpy(image)  # shape: [H, W, C]
+            
+            c2w = torch.from_numpy(orbit_camera(self.cam_config[0], self.cam_config[1], radius=self.cfg.cam_radius, opengl=True))
 
             # scale up radius to make model make scale predictions
             c2w[:3, 3] *= self.cfg.cam_radius / 1.5 # 1.5 is the default scale of the dataset
