@@ -119,7 +119,7 @@ class ObjaverseDataset(Dataset):
             23: [60, 315],
 
             # elevation = 90,
-            24: [89.89, 0]
+            24: [89.89, 180]
         }
 
 
