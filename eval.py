@@ -53,11 +53,10 @@ def main():
         pin_memory=True
     )
 
-    optimizer = torch.optim.AdamW(model.parameters(), lr=cfg.lr, weight_decay=0.05, betas=(0.9, 0.95))
 
     # accelerate
-    model, optimizer, train_dataloader, test_dataloader, scheduler = accelerator.prepare(
-        model, optimizer, train_dataloader, test_dataloader, scheduler
+    model, test_dataloader = accelerator.prepare(
+        model, test_dataloader
     )
 
     if not cfg.fine_tune and cfg.resume is not None:
@@ -65,7 +64,6 @@ def main():
         # Continue training by loading all state of optimizer, model, scheduler
         accelerator.load_state(cfg.resume, strict=False)
 
-    best_psnr_eval = 0
 
     # eval
     with torch.no_grad():
