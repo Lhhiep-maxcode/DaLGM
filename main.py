@@ -28,7 +28,8 @@ def main():
             "input_size": cfg.input_size,
             "splat_size": cfg.splat_size,
             "output_size": cfg.output_size,
-            "num_views_used": cfg.num_views_used,
+            "num_views_input": cfg.num_views_input,
+            "num_views_output": cfg.num_views_output,
             "lambda_lpips_start": cfg.lambda_lpips_start, 
             "lambda_lpips_end": cfg.lambda_lpips_end,
             "lambda_mse_start": cfg.lambda_mse_start,
@@ -122,6 +123,8 @@ def main():
         model.train()
         total_loss = 0
         total_psnr = 0
+        total_ssim = 0
+        total_lpips = 0
         # Create tqdm only on main process
         if accelerator.is_main_process:
             print(f"----------Epoch {epoch + 1}----------")
@@ -136,10 +139,13 @@ def main():
                 step_ratio = (epoch + i / len(train_dataloader)) / cfg.num_epochs
                 lambda_lpips = cfg.lambda_lpips_start * (cfg.lambda_lpips_end / cfg.lambda_lpips_start) ** step_ratio
                 lambda_mse = cfg.lambda_mse_start * (cfg.lambda_mse_end / cfg.lambda_mse_start) ** step_ratio
+                lambda_top = cfg.lambda_top
 
-                out = model(data, lambda_mse, lambda_lpips)
+                out = model(data, lambda_mse, lambda_lpips, lambda_top)
                 loss = out['loss']
                 psnr = out['psnr']
+                ssim = out['ssim']
+                lpips = out['lpips']
 
                 accelerator.backward(loss)
 
@@ -153,6 +159,8 @@ def main():
 
                 total_loss += loss.detach()
                 total_psnr += psnr.detach()
+                total_ssim += ssim.detach()
+                total_lpips += lpips.detach()
 
             if accelerator.is_main_process:
                 pbar.update(1)
@@ -165,11 +173,13 @@ def main():
 
                 if i % 10 == 0:
                     run.log({
-                        "Learning rate (10 step)": scheduler.get_last_lr()[0], 
-                        "lambda MSE (10 step)": lambda_mse, 
-                        "lambda LPIPS (10 step)": lambda_lpips,
+                        "Learning rate (10 steps)": scheduler.get_last_lr()[0], 
+                        "lambda MSE (10 steps)": lambda_mse, 
+                        "lambda LPIPS (10 steps)": lambda_lpips,
                         "Train loss (10 steps)": loss.detach(), 
-                        "Train psnr (10 steps)": psnr.detach()
+                        "Train psnr (10 steps)": psnr.detach(),
+                        "Train ssim (10 steps)": ssim.detach(),
+                        "Train lpips (10 steps)": lpips.detach(),
                     })
 
                 # save log images
@@ -200,18 +210,20 @@ def main():
         if accelerator.is_main_process:
             total_loss /= len(train_dataloader)
             total_psnr /= len(train_dataloader)
-            accelerator.print(f"[TRAIN INFO] Epoch: {epoch + 1} loss: {total_loss:.6f} psnr: {total_psnr:.4f}")
-            run.log({"Train loss (Epoch)": total_loss, "Train psnr (Epoch)": total_psnr})
+            total_ssim /= len(train_dataloader)
+            total_lpips /= len(train_dataloader)
+            accelerator.print(f"[TRAIN INFO] Epoch: {epoch + 1} loss: {total_loss:.6f} psnr: {total_psnr:.4f} ssim: {total_ssim:.4f} lpips: {total_lpips:.4f}")
+            run.log({"Train loss (Epoch)": total_loss, "Train psnr (Epoch)": total_psnr, "Train ssim (Epoch)": total_ssim, "Train lpips (Epoch)": total_lpips})
 
-        # checkpoint
-        if (epoch + 1) % 5 == 0 or epoch == cfg.num_epochs - 1:
-            accelerator.wait_for_everyone()
-            accelerator.save_state(output_dir=f'{cfg.workspace}/lastest')
+        accelerator.wait_for_everyone()
+        accelerator.save_state(output_dir=f'{cfg.workspace}/lastest')
 
         # eval
         with torch.no_grad():
             model.eval()
             total_psnr = 0
+            total_ssim = 0
+            total_lpips = 0
             if accelerator.is_main_process:
                 pbar2 = tqdm(test_dataloader, desc=f"[E] E{epoch + 1}/{cfg.num_epochs}")
 
@@ -219,11 +231,15 @@ def main():
                 out = model(data)
 
                 psnr = out['psnr']
+                ssim = out['ssim']
+                lpips = out['lpips']
                 total_psnr += psnr.detach()
+                total_ssim += ssim.detach()
+                total_lpips += lpips.detach()
 
                 if accelerator.is_main_process:
                     pbar2.update(1)
-                    if i % 500 == 0:
+                    if i % 100 == 0:
                         gt_images = data['images_output'].detach().cpu().numpy()    # [B, V, 3, output_size, output_size]
                         gt_images = gt_images.transpose(0, 3, 1, 4, 2).reshape(-1, gt_images.shape[1] * gt_images.shape[3], 3)
                         kiui.utils.write_image(f'{cfg.workspace}/{epoch}_{i}_eval_gt_images.jpg', gt_images)
@@ -239,8 +255,10 @@ def main():
             total_psnr = accelerator.gather_for_metrics(total_psnr).mean()
             if accelerator.is_main_process:
                 total_psnr /= len(test_dataloader)
-                run.log({"Test psnr (Epoch)": total_psnr})
-                accelerator.print(f"[EVAL INFO] Epoch: {epoch + 1} psnr: {total_psnr:.4f}")
+                total_ssim /= len(test_dataloader)
+                total_lpips /= len(test_dataloader)
+                run.log({"Test psnr (Epoch)": total_psnr, "Test ssim (Epoch)": total_ssim, "Test lpips (Epoch)": total_lpips})
+                accelerator.print(f"[EVAL INFO] Epoch: {epoch + 1} psnr: {total_psnr:.4f} ssim: {total_ssim:.4f} lpips: {total_lpips:.4f}")
 
             if total_psnr > best_psnr_eval:
                 best_psnr_eval = total_psnr
