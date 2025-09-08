@@ -53,7 +53,6 @@ def main():
         pin_memory=True
     )
 
-
     # accelerate
     model, val_dataloader = accelerator.prepare(
         model, val_dataloader
@@ -64,7 +63,8 @@ def main():
         # Continue training by loading all state of optimizer, model, scheduler
         accelerator.load_state(cfg.resume, strict=False)
 
-    print(f'[INFO] start evaluation for {len(val_dataset)} objects...')
+    if accelerator.is_main_process:
+        accelerator.print(f'[INFO] start evaluation for {len(val_dataset)} objects...')
     # eval
     with torch.no_grad():
         model.eval()
@@ -103,10 +103,10 @@ def main():
         total_ssim = accelerator.gather_for_metrics(total_ssim).mean()
         total_lpips = accelerator.gather_for_metrics(total_lpips).mean()
         if accelerator.is_main_process:
-            total_psnr /= len(val_dataset)
-            total_ssim /= len(val_dataset)
-            total_lpips /= len(val_dataset)
-            print(f'[EVAL] psnr: {total_psnr:.4f}, ssim: {total_ssim:.4f}, lpips: {total_lpips:.4f}')
+            total_psnr /= len(val_dataloader)
+            total_ssim /= len(val_dataloader)
+            total_lpips /= len(val_dataloader)
+            accelerator.print(f'[EVAL] psnr: {total_psnr:.4f}, ssim: {total_ssim:.4f}, lpips: {total_lpips:.4f}')
 
 
 if __name__ == "__main__":
