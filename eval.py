@@ -43,9 +43,9 @@ def main():
             else:
                 accelerator.print(f'[WARN] unexpected param {k}: {v.shape}')
 
-    test_dataset = Dataset(data_path=cfg.data_path, cfg=cfg, type='test')
-    test_dataloader = torch.utils.data.DataLoader(
-        test_dataset,
+    val_dataset = Dataset(data_path=cfg.data_path, cfg=cfg, type='val')
+    val_dataloader = torch.utils.data.DataLoader(
+        val_dataset,
         batch_size=cfg.batch_size,
         shuffle=False,
         num_workers=0,
@@ -55,8 +55,8 @@ def main():
 
 
     # accelerate
-    model, test_dataloader = accelerator.prepare(
-        model, test_dataloader
+    model, val_dataloader = accelerator.prepare(
+        model, val_dataloader
     )
 
     if not cfg.fine_tune and cfg.resume is not None:
@@ -64,7 +64,7 @@ def main():
         # Continue training by loading all state of optimizer, model, scheduler
         accelerator.load_state(cfg.resume, strict=False)
 
-
+    print(f'[INFO] start evaluation for {len(val_dataset)} objects...')
     # eval
     with torch.no_grad():
         model.eval()
@@ -72,9 +72,9 @@ def main():
         total_ssim = 0
         total_lpips = 0
         if accelerator.is_main_process:
-            pbar2 = tqdm(test_dataloader, desc=f"[Evaluation]")
+            pbar2 = tqdm(val_dataloader, desc=f"[Evaluation]")
 
-        for i, data in enumerate(test_dataloader):
+        for i, data in enumerate(val_dataloader):
             out = model(data)
 
             psnr = out['psnr']

@@ -66,7 +66,7 @@ class ObjaverseDataset(Dataset):
         if self.type == 'val':
             self.items = self.items[-int(self.cfg.val_size * len(self.items)):]
         elif self.type == 'test':
-            self.items = self.items[-int((self.cfg.val_size + self.cfg.test_size) * len(self.items)):-int(self.cfg.val_size * len(self.items))]
+            self.items = self.items[-int((self.cfg.val_size + self.cfg.test_size) * len(self.items)):-int(self.cfg.val_size * len(self.items) - 1)]
         else:
             self.items = self.items[:int(self.cfg.train_size * len(self.items))]
 
