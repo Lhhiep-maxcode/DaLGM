@@ -86,7 +86,7 @@ def main():
 
             if accelerator.is_main_process:
                 pbar2.update(1)
-                if i % 100 == 0:
+                if i % 5 == 0:
                     gt_images = data['images_output'].detach().cpu().numpy()    # [B, V, 3, output_size, output_size]
                     gt_images = gt_images.transpose(0, 3, 1, 4, 2).reshape(-1, gt_images.shape[1] * gt_images.shape[3], 3)
                     kiui.utils.write_image(f'{cfg.workspace}/{i}_eval_gt_images.jpg', gt_images)
@@ -102,7 +102,11 @@ def main():
         total_psnr = accelerator.gather_for_metrics(total_psnr).mean()
         total_ssim = accelerator.gather_for_metrics(total_ssim).mean()
         total_lpips = accelerator.gather_for_metrics(total_lpips).mean()
-        print(f'[EVAL] psnr: {total_psnr:.4f}, ssim: {total_ssim:.4f}, lpips: {total_lpips:.4f}')
+        if accelerator.is_main_process:
+            total_psnr /= len(val_dataset)
+            total_ssim /= len(val_dataset)
+            total_lpips /= len(val_dataset)
+            print(f'[EVAL] psnr: {total_psnr:.4f}, ssim: {total_ssim:.4f}, lpips: {total_lpips:.4f}')
 
 
 if __name__ == "__main__":
