@@ -11,6 +11,9 @@ import torch
 import tyro
 import kiui
 import wandb
+import numpy as np
+import os
+import random
 
 def main():
     
@@ -110,4 +113,17 @@ def main():
 
 
 if __name__ == "__main__":
+    # 1. Seed everything
+    seed = 42
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+    os.environ["PYTHONHASHSEED"] = str(seed)
+
+    # 2. Force deterministic behavior
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    torch.use_deterministic_algorithms(True, warn_only=True)
+
     main()
