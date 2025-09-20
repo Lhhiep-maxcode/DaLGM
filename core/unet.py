@@ -1,18 +1,16 @@
-# core\model.py
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
 import numpy as np
+from typing import Tuple, Literal
+from functools import partial
 
 from core.attention import MemEffAttention
-from functools import partial
-from typing import Tuple, Literal
-
 
 class MVAttention(nn.Module):
     def __init__(
-        self,
+        self, 
         dim: int,
         num_heads: int = 8,
         qkv_bias: bool = False,
@@ -23,7 +21,7 @@ class MVAttention(nn.Module):
         eps: float = 1e-5,
         residual: bool = True,
         skip_scale: float = 1,
-        num_frames: int = 4,
+        num_frames: int = 9, # WARN: hardcoded!
     ):
         super().__init__()
 
@@ -35,23 +33,20 @@ class MVAttention(nn.Module):
         self.attn = MemEffAttention(dim, num_heads, qkv_bias, proj_bias, attn_drop, proj_drop)
 
     def forward(self, x):
+        # x: [B*V, C, H, W]
         BV, C, H, W = x.shape
-        B = BV // self.num_frames
+        B = BV // self.num_frames # assert BV % self.num_frames == 0
 
         res = x
         x = self.norm(x)
 
-        # (BV, C, H, W) -> reshape: (B, V, C, H, W) -> permute: (B, V, H, W, C) -> reshape: (B, V * H * W, C)
         x = x.reshape(B, self.num_frames, C, H, W).permute(0, 1, 3, 4, 2).reshape(B, -1, C)
-        # (B, V * H * W, C)
         x = self.attn(x)
-        # (B, V * H * W, C) -> reshape: (B, V, H, W, C) -> permute: (B, V, C, H, W) -> reshape: (BV, C, H, W)
         x = x.reshape(B, self.num_frames, H, W, C).permute(0, 1, 4, 2, 3).reshape(BV, C, H, W)
 
         if self.residual:
             x = (x + res) * self.skip_scale
         return x
-    
 
 class ResnetBlock(nn.Module):
     def __init__(
@@ -106,7 +101,6 @@ class ResnetBlock(nn.Module):
         x = (x + self.shortcut(res)) * self.skip_scale
 
         return x
-
 
 class DownBlock(nn.Module):
     def __init__(
@@ -185,7 +179,8 @@ class MidBlock(nn.Module):
                 x = attn(x)
             x = net(x)
         return x
-    
+
+
 class UpBlock(nn.Module):
     def __init__(
         self,
@@ -231,7 +226,7 @@ class UpBlock(nn.Module):
         if self.upsample:
             x = F.interpolate(x, scale_factor=2.0, mode='nearest')
             x = self.upsample(x)
-        
+
         return x
 
 
@@ -239,13 +234,13 @@ class UpBlock(nn.Module):
 class UNet(nn.Module):
     def __init__(
         self,
-        in_channels: int = 9,
-        out_channels: int = 14  ,
-        down_channels: Tuple[int, ...] = (64, 128, 256, 512, 1024, 1024),
-        down_attention: Tuple[bool, ...] = (False, False, False, True, True, True),
+        in_channels: int = 3,
+        out_channels: int = 3,
+        down_channels: Tuple[int, ...] = (64, 128, 256, 512, 1024),
+        down_attention: Tuple[bool, ...] = (False, False, False, True, True),
         mid_attention: bool = True,
-        up_channels: Tuple[int, ...] = (1024, 1024, 512, 256, 128),
-        up_attention: Tuple[bool, ...] = (True, True, True, False, False),
+        up_channels: Tuple[int, ...] = (1024, 512, 256),
+        up_attention: Tuple[bool, ...] = (True, True, False),
         layers_per_block: int = 2,
         skip_scale: float = np.sqrt(0.5),
     ):
@@ -300,10 +295,10 @@ class UNet(nn.Module):
 
         # first
         x = self.conv_in(x)
-
+        
         # down
         xss = [x]
-        for block in (self.down_blocks):
+        for block in self.down_blocks:
             x, xs = block(x)
             xss.extend(xs)
         
@@ -311,11 +306,10 @@ class UNet(nn.Module):
         x = self.mid_block(x)
 
         # up
-        for block in (self.up_blocks):
+        for block in self.up_blocks:
             xs = xss[-len(block.nets):]
             xss = xss[:-len(block.nets)]
             x = block(x, xs)
-            
 
         # last
         x = self.norm_out(x)
@@ -323,22 +317,3 @@ class UNet(nn.Module):
         x = self.conv_out(x) # [B, Cout, H', W']
 
         return x
-
-
-if __name__ == "__main__":
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    print(device)
-    x = torch.randn((4, 9, 64, 64)).to(device)
-    model = UNet(
-        9, 14, 
-    ).to(device)
-    print(model(x).shape)
-
-    # mvattn = MVAttention(32).to(device)
-    # resblock = ResnetBlock(32, 32, 'default').to(device)
-    # downblock = DownBlock(32, 32).to(device)
-    # midblock = MidBlock(32, 32).to(device)
-
-    # print(resblock(x).shape)
-    # print(downblock(x)[0].shape)
-    # print(midblock(x).shape)

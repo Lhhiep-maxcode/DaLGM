@@ -1,4 +1,11 @@
-# core\unet.py
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+#
+# This source code is licensed under the Apache License, Version 2.0
+# found in the LICENSE file in the root directory of this source tree.
+
+# References:
+#   https://github.com/facebookresearch/dino/blob/master/vision_transformer.py
+#   https://github.com/rwightman/pytorch-image-models/tree/master/timm/models/vision_transformer.py
 
 import os
 import warnings
@@ -20,6 +27,7 @@ except ImportError:
     XFORMERS_AVAILABLE = False
     warnings.warn("xFormers is not available (Attention)")
 
+
 class Attention(nn.Module):
     def __init__(
         self,
@@ -29,46 +37,33 @@ class Attention(nn.Module):
         proj_bias: bool = True,
         attn_drop: float = 0.0,
         proj_drop: float = 0.0,
-    ):
+    ) -> None:
         super().__init__()
         self.num_heads = num_heads
-        self.scale = (dim // self.num_heads) ** -0.5    # scale for dot-product
+        head_dim = dim // num_heads
+        self.scale = head_dim**-0.5
 
         self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
         self.attn_drop = nn.Dropout(attn_drop)
         self.proj = nn.Linear(dim, dim, bias=proj_bias)
         self.proj_drop = nn.Dropout(proj_drop)
 
-    def forward(self, x):
-        B, N, C = x.shape   # N = H * W
-        # (B, N, C) -> (3, B, heads, N, channel/head)
+    def forward(self, x: Tensor) -> Tensor:
+        B, N, C = x.shape
         qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
-        # print("Expected: (B, N, 3, heads, channel/head) -> (3, B, heads, N, channel/head)")
-        # print(x.shape, '-->', qkv.shape)
 
         q, k, v = qkv[0] * self.scale, qkv[1], qkv[2]
-        # res = (B, heads, N, N)
         attn = q @ k.transpose(-2, -1)
-        attn = attn.softmax(-1)
+
+        attn = attn.softmax(dim=-1)
         attn = self.attn_drop(attn)
-        # print("Expected: (B, heads, N, N)")
-        # print(attn.shape)
 
-        # (B, heads, N, channel/head) -> (B, N, heads, channel/head) -> (B, N, C)
-        x1 = (attn @ v)
-        x2 = x1.transpose(1, 2)
-        x = x2.reshape(B, N, C)
-        # print("Expected: (B, heads, N, channel/head) -> (B, N, heads, channel/head) -> (B, N, C)")
-        # print(x1.shape, '-->', x2.shape, '-->', x.shape)
-
-        # (B, N, C) -> (B, N, C)
-        x1 = self.proj(x)
-        x = self.proj_drop(x1)
-        # print("Expected: (B, N, C) -> (B, N, C)")
-        # print(x1.shape, '-->', x.shape)
-
+        x = (attn @ v).transpose(1, 2).reshape(B, N, C)
+        x = self.proj(x)
+        x = self.proj_drop(x)
         return x
-    
+
+
 class MemEffAttention(Attention):
     def forward(self, x: Tensor, attn_bias=None) -> Tensor:
         if not XFORMERS_AVAILABLE:
@@ -103,8 +98,10 @@ class CrossAttention(nn.Module):
         proj_drop: float = 0.0,
     ) -> None:
         super().__init__()
+        self.dim = dim
         self.num_heads = num_heads
-        self.scale = (dim // self.num_heads) ** -0.5
+        head_dim = dim // num_heads
+        self.scale = head_dim**-0.5
 
         self.to_q = nn.Linear(dim_q, dim, bias=qkv_bias)
         self.to_k = nn.Linear(dim_k, dim, bias=qkv_bias)
@@ -113,43 +110,28 @@ class CrossAttention(nn.Module):
         self.proj = nn.Linear(dim, dim, bias=proj_bias)
         self.proj_drop = nn.Dropout(proj_drop)
 
-    def forward(self, q, k, v):
+    def forward(self, q: Tensor, k: Tensor, v: Tensor) -> Tensor:
         # q: [B, N, Cq]
         # k: [B, M, Ck]
         # v: [B, M, Cv]
         # return: [B, N, C]
 
         B, N, _ = q.shape
-        _, M, _ = k.shape
+        M = k.shape[1]
+        
+        q = self.scale * self.to_q(q).reshape(B, N, self.num_heads, self.dim // self.num_heads).permute(0, 2, 1, 3) # [B, nh, N, C/nh]
+        k = self.to_k(k).reshape(B, M, self.num_heads, self.dim // self.num_heads).permute(0, 2, 1, 3) # [B, nh, M, C/nh]
+        v = self.to_v(v).reshape(B, M, self.num_heads, self.dim // self.num_heads).permute(0, 2, 1, 3) # [B, nh, M, C/nh]
 
-        # [B, N, Cq] -> [B, N, C] -> [B, N, nh, C/nh] -> [B, nh, N, C/nh]
-        q = self.scale * (self.to_q(q).reshape(B, N, self.num_heads, -1).permute(0, 2, 1, 3))
-        # print("Expected: [B, nh, N, C/nh]")
-        # print(q.shape)
-        # [B, nh, M, C/nh]
-        k = (self.to_k(k).reshape(B, M, self.num_heads, -1).permute(0, 2, 1, 3))
-        # print("Expected: [B, nh, M, C/nh]")
-        # print(k.shape)
-        # [B, nh, M, C/nh]
-        v = (self.to_v(v).reshape(B, M, self.num_heads, -1).permute(0, 2, 1, 3))
-        # print("Expected: [B, nh, M, C/nh]")
-        # print(v.shape)
+        attn = q @ k.transpose(-2, -1) # [B, nh, N, M]
 
-        # [B, nh, N, M]
-        attn = q @ k.transpose(-2, -1)
-        attn = attn.softmax(dim=-1)
-        attn = self.attn_drop(attn) 
-        # print("Expected [B, nh, N, M]")
-        # print(attn.shape)
+        attn = attn.softmax(dim=-1) # [B, nh, N, M]
+        attn = self.attn_drop(attn)
 
-        # [B, N, C]
-        x = (attn @ v).transpose(1, 2).reshape(B, N, -1)
+        x = (attn @ v).transpose(1, 2).reshape(B, N, -1) # [B, nh, N, M] @ [B, nh, M, C/nh] --> [B, nh, N, C/nh] --> [B, N, nh, C/nh] --> [B, N, C]
         x = self.proj(x)
         x = self.proj_drop(x)
-        # print("Expected [B, N, C]")
-        # print(x.shape)
         return x
-
 
 
 class MemEffCrossAttention(CrossAttention):

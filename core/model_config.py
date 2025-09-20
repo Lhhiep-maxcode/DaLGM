@@ -23,7 +23,7 @@ class Options:
     test_size: float = 0.1
     val_size: float = 0.1
     data_path: str = '/kaggle/input/objaverse-subset'
-    # data mode (only support s3 now)   ---> CHUA HIEU
+    # data mode (only support s3 now)
     data_mode: Literal['s3'] = 's3'
     # Field of view in y direction of the dataset   
     fovy: float = 49.1
@@ -34,8 +34,9 @@ class Options:
     # number of total views
     num_views_total: int = 25
     # number of (input + test) views
-    num_views_used: int = 13
-    # camera radius (radius of camera orbitting around object)   ---> CHUA HIEU
+    num_views_input: int = 9
+    num_views_output: int = 9
+    # camera radius (radius of camera orbitting around object)
     cam_radius: float = 1.5 # to better use [-1, 1]^3 space
     # num workers
     num_workers: int = 8
@@ -43,6 +44,11 @@ class Options:
     ### TRAINING
     # workspace
     workspace: str = './workspace'
+    # wandb
+    wandb_key: Optional[str] = None
+    wandb_project_name: str ='LGM-4001'
+    wandb_experiment_name: str = 'default'
+    wandb_experiment_id: Optional[str] = None
     # fine-tuning
     fine_tune: bool = True
     # resume
@@ -53,8 +59,13 @@ class Options:
     gradient_accumulation_steps: int = 1
     # training epochs
     num_epochs: int = 30
+    lambda_alpha: float = 1.0
+    lambda_top: float = 1.0     # lambda top_view loss 
+    lambda_mse_start: float = 1.0
+    lambda_mse_end: float = 1.0
     # lpips loss weight (loss = L_mse + lambda * L_lpips)
-    lambda_lpips: float = 1.0
+    lambda_lpips_start: float = 1.0
+    lambda_lpips_end: float = 1.0
     # gradient clip
     gradient_clip: float = 1.0
     # mixed precision
