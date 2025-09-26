@@ -82,8 +82,11 @@ def run(cfg: Options, path):
     images = []
     masks = []
     cam_poses = []
+    os.makedirs(cfg.workspace, exist_ok=True)
 
     # ====================== Data loading and preprocessing ======================
+    global_ymin, global_ymax = 1e9, -1
+    global_xmin, global_xmax = 1e9, -1
     for view_id in view_ids:
         image_path = os.path.join(path, 'rgb', f'{view_id:03d}.png')
         image = cv2.imread(image_path, cv2.IMREAD_UNCHANGED)  # shape: [512, 512, 4]
@@ -141,7 +144,7 @@ def run(cfg: Options, path):
     rays_embeddings = torch.stack(rays_embeddings, dim=0).permute(0, 3, 1, 2).contiguous() # [V=9, 6, h, w]
     input_images = torch.cat([images, rays_embeddings], dim=1) # [V, 9, H, W]
 
-    # ====================== Inference ======================
+    # =========================== Inference ===========================
     with torch.no_grad():
         input_images = input_images.unsqueeze(0).to(device) # [1, V, 9, H, W]
         gaussians = model.forward_gaussians(input_images)
@@ -150,7 +153,7 @@ def run(cfg: Options, path):
         elevation = 30
         azimuth = np.arange(0, 720, 4, dtype=np.int32)
 
-        for azi in tqdm.tqdm(azimuth):
+        for azi in tqdm(azimuth):
 
             # c2w matrix
             cam_poses = torch.from_numpy(orbit_camera(-elevation, azi, radius=cfg.cam_radius, opengl=True)).unsqueeze(0).to(device)
