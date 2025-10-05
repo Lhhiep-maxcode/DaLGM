@@ -81,7 +81,7 @@ class ObjaverseDataset(Dataset):
 
         self.input_view_ids = [0, 2, 4, 6,         # L1
                                9, 11, 13, 15,      # L2
-                                                   # L3
+                               16, 18, 20, 22,     # L3
                                24,]                # L4
         
         self.test_view_ids = [i for i in range(cfg.num_views_total)]
