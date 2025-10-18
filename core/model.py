@@ -187,7 +187,7 @@ class LGM(nn.Module):
             ).mean()
             
             B, V, C, H, W = pred_images.shape
-            loss_ssim_all = self.ssim_metric(pred_images.view(B * V, C, H, W), gt_images.view(B * V, C, H, W))
+            loss_ssim_all = 1 - self.ssim_metric(pred_images.view(B * V, C, H, W), gt_images.view(B * V, C, H, W))
 
             loss = loss + lambda_ssim * loss_ssim_all + lambda_lpips * loss_lpips_all
 
