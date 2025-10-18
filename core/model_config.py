@@ -17,6 +17,8 @@ class Options:
     splat_size: int = 64
     # gaussian render size
     output_size: int = 256
+    use_model_head: bool = False
+    freeze_backbone: bool = True
 
     ### DATASET
     train_size: float = 0.8
@@ -60,10 +62,13 @@ class Options:
     # training epochs
     num_epochs: int = 30
     lambda_alpha: float = 1.0
-    lambda_top: float = 1.0     # lambda top_view loss 
+    # mse loss weight
     lambda_mse_start: float = 1.0
     lambda_mse_end: float = 1.0
-    # lpips loss weight (loss = L_mse + lambda * L_lpips)
+    # ssim loss weight
+    lambda_ssim_start: float = 1.0
+    lambda_ssim_end: float = 1.0
+    # lpips loss weight
     lambda_lpips_start: float = 1.0
     lambda_lpips_end: float = 1.0
     # gradient clip
