@@ -45,7 +45,9 @@ class LGM(nn.Module):
 
         # last convs
         self.conv = nn.Conv2d(14, 14, kernel_size=1)
-        self.conv1 = IdentityConv2d(14, 14, kernel_size=3, stride=1, padding=1, bias=True)
+        
+        if self.cfg.use_upscale_head:
+            self.conv1 = IdentityConv2d(14, 14, kernel_size=3, stride=1, padding=1, bias=True)
         # self.conv2 = nn.Conv2d(14, 14, kernel_size=3, stride=1, padding=1)
 
         # Gaussian Renderer
