@@ -31,8 +31,10 @@ class LGM(nn.Module):
             up_attention=self.cfg.up_attention,
         )
 
-        # last conv
+        # last convs
         self.conv = nn.Conv2d(14, 14, kernel_size=1)
+        self.conv1 = nn.Conv2d(14, 14, kernel_size=3, stride=1, padding=1)
+        # self.conv2 = nn.Conv2d(14, 14, kernel_size=3, stride=1, padding=1)
 
         # Gaussian Renderer
         self.gs = GaussianRenderer(cfg)
@@ -67,6 +69,12 @@ class LGM(nn.Module):
             if 'lpips_loss' in k:
                 del state_dict[k]
         return state_dict
+    
+    def freeze_backbone(self):
+        for param in self.unet.parameters():
+            param.requires_grad = False
+        for param in self.conv.parameters():
+            param.requires_grad = False
     
     def prepare_default_rays(self, device, elevation=0):
         # prepare Plucker embedding for 4 input images
@@ -105,14 +113,11 @@ class LGM(nn.Module):
         x = self.unet(images)   # [B*5, 14, H, W]
         x = self.conv(x)        # [B*5, 14, H, W]
 
-        x = x.reshape(B, self.cfg.num_views_input, 14, self.cfg.splat_size, self.cfg.splat_size)
+        if self.cfg.use_upscale_head:
+            x = F.interpolate(x, scale_factor=2.0, mode='nearest')
+            x = self.conv1(x)
         
-        # # visualize multi-view gaussian features for plotting figure
-        # tmp_alpha = self.opacity_act(x[0, :, 3:4])
-        # tmp_img_rgb = self.rgb_act(x[0, :, 11:]) * tmp_alpha + (1 - tmp_alpha)
-        # tmp_img_pos = self.pos_act(x[0, :, 0:3]) * 0.5 + 0.5
-        # kiui.vis.plot_image(tmp_img_rgb, save=True)
-        # kiui.vis.plot_image(tmp_img_pos, save=True)
+        x = x.reshape(B, self.cfg.num_views_input, 14, self.cfg.splat_size, self.cfg.splat_size)
 
         x = x.permute(0, 1, 3, 4, 2).reshape(B, -1, 14)    # [B, 5, splat_size, splat_size, 14] --> [B, N, 14]
         
@@ -176,8 +181,7 @@ class LGM(nn.Module):
         gt_images = gt_images * gt_masks + (1 - gt_masks) * bg_color.view(1, 1, 3, 1, 1)
 
         loss_mse_all = F.mse_loss(pred_images, gt_images) + self.cfg.lambda_alpha * F.mse_loss(pred_alphas, gt_masks)
-        # loss_mse_top = F.mse_loss(pred_images[:, 4], gt_images[:, 4]) + self.cfg.lambda_alpha * F.mse_loss(pred_alphas[:, 4], gt_masks[:, 4])
-        loss = loss + lambda_mse * (loss_mse_all) # + lambda_mse * (lambda_top - 1) * loss_mse_top
+        loss = loss + lambda_mse * (loss_mse_all)
 
         if lambda_lpips > 0:
             loss_lpips_all = self.lpips_loss(
@@ -185,12 +189,8 @@ class LGM(nn.Module):
                 F.interpolate(gt_images.view(-1, 3, self.cfg.output_size, self.cfg.output_size) * 2 - 1, (256, 256), mode='bilinear', align_corners=False),
                 F.interpolate(pred_images.view(-1, 3, self.cfg.output_size, self.cfg.output_size) * 2 - 1, (256, 256), mode='bilinear', align_corners=False),
             ).mean()
-            # loss_lpips_top = self.lpips_loss(
-            #     # Rescale value from [0, 1] to [-1, -1] and resize to 256 to save memory cost
-            #     F.interpolate(gt_images[:, 4].view(-1, 3, self.cfg.output_size, self.cfg.output_size) * 2 - 1, (256, 256), mode='bilinear', align_corners=False),
-            #     F.interpolate(pred_images[:, 4].view(-1, 3, self.cfg.output_size, self.cfg.output_size) * 2 - 1, (256, 256), mode='bilinear', align_corners=False),
-            # ).mean()
-            loss = loss + lambda_lpips * (loss_lpips_all) # + lambda_lpips * (lambda_top - 1) * loss_lpips_top
+            
+            loss = loss + lambda_lpips * (loss_lpips_all)
 
         results['loss'] = loss
 

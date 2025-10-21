@@ -17,6 +17,7 @@ class Options:
     splat_size: int = 64
     # gaussian render size
     output_size: int = 256
+    use_upscale_head: bool = False
 
     ### DATASET
     train_size: float = 0.8
@@ -51,6 +52,8 @@ class Options:
     wandb_experiment_id: Optional[str] = None
     # fine-tuning
     fine_tune: bool = True
+    # freezing backbone
+    freeze_backbone: bool = True
     # resume
     resume: Optional[str] = None
     # batch size (per-GPU)

@@ -64,7 +64,10 @@ def main():
                     accelerator.print(f'[WARN] mismatching shape for param {k}: ckpt {v.shape} != model {state_dict[k].shape}, ignored.')
             else:
                 accelerator.print(f'[WARN] unexpected param {k}: {v.shape}')
-
+        
+        if cfg.freeze_backbone:
+            model.freeze_backbone()
+    
     
     train_dataset = Dataset(data_path=cfg.data_path, cfg=cfg, type='train')
     train_dataloader = torch.utils.data.DataLoader(
@@ -116,6 +119,10 @@ def main():
         # NOTE: cfg.resume (dir type) must be saved by accelerator.save_state()
         # Continue training by loading all state of optimizer, model, scheduler
         accelerator.load_state(cfg.resume, strict=False)
+        
+        if cfg.freeze_backbone:
+            model.freeze_backbone()
+    
 
     best_psnr_eval = 0
 
