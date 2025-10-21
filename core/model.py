@@ -14,6 +14,18 @@ from core.utils import get_rays
 from torchmetrics.image import PeakSignalNoiseRatio, StructuralSimilarityIndexMeasure
 
 
+class IdentityConv2d(nn.Conv2d):
+    def __init__(self, in_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False):
+        super().__init__(in_channels=in_channels, out_channels=out_channels,
+                         kernel_size=kernel_size, stride=stride, padding=padding, bias=bias)
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        nn.init.zeros_(self.weight)
+        # make identity kernel
+        c_out, c_in, k, _ = self.weight.shape
+        for i in range(min(c_out, c_in)):
+            self.weight.data[i, i, k // 2, k // 2] = 1.0
 
 class LGM(nn.Module):
     def __init__(self, cfg: Options):
@@ -33,7 +45,7 @@ class LGM(nn.Module):
 
         # last convs
         self.conv = nn.Conv2d(14, 14, kernel_size=1)
-        self.conv1 = nn.Conv2d(14, 14, kernel_size=3, stride=1, padding=1)
+        self.conv1 = IdentityConv2d(14, 14, kernel_size=3, stride=1, padding=1, bias=True)
         # self.conv2 = nn.Conv2d(14, 14, kernel_size=3, stride=1, padding=1)
 
         # Gaussian Renderer
