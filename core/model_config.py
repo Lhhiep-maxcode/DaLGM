@@ -53,7 +53,7 @@ class Options:
     # fine-tuning
     fine_tune: bool = True
     # freezing backbone
-    freeze_backbone: bool = True
+    freeze_backbone: bool = False
     # resume
     resume: Optional[str] = None
     # batch size (per-GPU)
