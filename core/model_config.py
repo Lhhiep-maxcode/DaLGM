@@ -57,6 +57,7 @@ class Options:
     batch_size: int = 8
     # gradient accumulation
     gradient_accumulation_steps: int = 1
+    warmup_step: int = 4000
     # training epochs
     num_epochs: int = 30
     lambda_alpha: float = 1.0

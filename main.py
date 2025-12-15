@@ -103,7 +103,7 @@ def main():
     # consider to use ConsineAnnealingWarmRestart to escape local
     # scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=3000, eta_min=1e-6)
     total_steps = cfg.num_epochs * len(train_dataloader)
-    pct_start = 3000 / total_steps
+    pct_start = cfg.warmup_step / total_steps
     # Warm up + CosineAnnealingLR
     scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=cfg.lr, total_steps=total_steps, pct_start=pct_start)
 
