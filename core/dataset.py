@@ -9,6 +9,7 @@ import os
 import cv2
 import random
 import numpy as np
+import re
 
 import torch
 import torch.nn as nn
@@ -40,27 +41,11 @@ class ObjaverseDataset(Dataset):
                           if os.path.isdir(os.path.join(data_path, sub))]
         
         self.items = []
-        self.unused_items = [
-            '/kaggle/input/10k-objaverse-object/archive_60/d7380c30ab55424e9f770c9115c56a83',
-            '/kaggle/input/10k-objaverse-object/archive_17/279673bdc0c549df99a51f8469bae811',
-            '/kaggle/input/10k-objaverse-object/archive_62/ff70344b758b44ddb3c4e31b7eab91be',
-            '/kaggle/input/10k-objaverse-object/archive_27/b6d50c45ddca470b938a48cf80612470',
-            '/kaggle/input/10k-objaverse-object/archive_65/b7b851ecb844419ca4c0b780a62b27ae',
-            '/kaggle/input/10k-objaverse-object/archive_53/caa7053c0ee64ce8ac7ed1c8276af0de',
-            '/kaggle/input/10k-objaverse-object/archive_55/f57e883babaa4369aa0ecf09bbea04b0',
-            '/kaggle/input/10k-objaverse-object/archive_100/f5836f1fadd54919be5ce641182fd386',
-            '/kaggle/input/10k-objaverse-object/archive_96/2d2c2f9f1c54400187eea823843f8e2e',
-            '/kaggle/input/10k-objaverse-object/archive_57/65791b708f5d45dab22fb6be46255854',
-            '/kaggle/input/10k-objaverse-object/archive_57/d4f7e28fabb448049530a86c8dae568b',
-            '/kaggle/input/10k-objaverse-object/archive_5/793f1bd80bfb45268832b267d6a31cab',
-            '/kaggle/input/10k-objaverse-object/archive_5/b637b4e3f43d414c96edb6a0c18b0603'
-        ]
 
         for sub in self.subfolder:
             for item in os.listdir(sub):
                 item_path = os.path.join(sub, item)
-                if os.path.isdir(item_path) and item_path not in self.unused_items:
-                    self.items.append(item_path)
+                self.items.append(item_path)
 
         # naive split
         if self.type == 'val':
@@ -140,6 +125,24 @@ class ObjaverseDataset(Dataset):
         assert len(self.input_view_ids) == self.cfg.num_views_input
 
         item_path = self.items[idx]
+        input_0 = [(f, 0) for f in os.listdir(os.path.join(item_path, 'elev_0_azim_0_dist_1.5', 'rgb')) 
+                   if os.path.isfile(os.path.join(item_path, 'elev_0_azim_0_dist_1.5', 'rgb', f))]
+        
+        input_2 = [(f, 2) for f in os.listdir(os.path.join(item_path, 'elev_0_azim_90_dist_1.5', 'rgb')) 
+                   if os.path.isfile(os.path.join(item_path, 'elev_0_azim_90_dist_1.5', 'rgb', f))]
+        
+        input_4 = [(f, 4) for f in os.listdir(os.path.join(item_path, 'elev_0_azim_180_dist_1.5', 'rgb')) 
+                   if os.path.isfile(os.path.join(item_path, 'elev_0_azim_180_dist_1.5', 'rgb', f))]
+        
+        input_6 = [(f, 6) for f in os.listdir(os.path.join(item_path, 'elev_0_azim_270_dist_1.5', 'rgb')) 
+                   if os.path.isfile(os.path.join(item_path, 'elev_0_azim_270_dist_1.5', 'rgb', f))]
+        
+        input_24 = [(f, 24) for f in os.listdir(os.path.join(item_path, 'elev_89.89_azim_180_dist_1.5', 'rgb')) 
+                   if os.path.isfile(os.path.join(item_path, 'elev_89.89_azim_180_dist_1.5', 'rgb', f))]
+        
+        ref = [(f, -1) for f in os.listdir(os.path.join(item_path, 'reference', 'rgb')) 
+               if os.path.isfile(os.path.join(item_path, 'reference', 'rgb', f))]
+
         results = {}
 
         # load num_views images
@@ -147,37 +150,30 @@ class ObjaverseDataset(Dataset):
         masks = []
         cam_poses = []
         
-        view_ids = self.input_view_ids + np.random.permutation(self.test_view_ids).tolist()
-        view_ids = view_ids[:(self.cfg.num_views_input + self.cfg.num_views_output)]
+        image_paths = [random.choice(input_0), random.choice(input_2), random.choice(input_4), 
+                    random.choice(input_6), random.choice(input_24)] + np.random.permutation(ref).tolist()
+        image_paths = image_paths[:(self.cfg.num_views_input + self.cfg.num_views_output)]
 
-        def find_nonzero_bbox(alpha_channel):
-            """Find bounding box (ymin, ymax, xmin, xmax) where alpha > 0."""
-            ys, xs = np.where(alpha_channel > 0.000001)
-            if len(xs) == 0 or len(ys) == 0:  # Fully transparent
-                return None
-            return ys.min(), ys.max(), xs.min(), xs.max()
+        for (image_path, view_id) in image_paths:
+            if view_id == -1:
+                filename = image_path.split("/")[-1]
 
-        global_ymin, global_ymax = 1e9, -1
-        global_xmin, global_xmax = 1e9, -1
-        for view_id in view_ids:
-        
-            # data path: /kaggle/input/objaverse-subset/archive_4
-            image_path = os.path.join(item_path, 'rgb', f'{view_id:03d}.png')
-            camera_path = os.path.join(item_path, 'pose', f'{view_id:03d}.txt') 
+                pattern = r"elev_([-+]?[0-9]*\.?[0-9]+)_azim_([-+]?[0-9]*\.?[0-9]+)"
+                match = re.search(pattern, filename)
+
+                if match:
+                    elev = int(match.group(1))
+                    azim = int(match.group(2))
+
+                    view_id = next(
+                        (k for k, v in self.cam_config.items() if v == [elev, azim]),
+                        None
+                    )
+                else:
+                    raise ValueError(f"Cannot parse elev/azim from {image_path}")
 
             # try:
             image = cv2.imread(image_path, cv2.IMREAD_UNCHANGED)  # shape: [512, 512, 4]
-            alpha = image[:, :, 3]
-            bbox = find_nonzero_bbox(alpha)
-            if bbox is None:
-                print(f"Fully transparent image at {item_path}")
-                bbox = (1e9, -1, 1e9, -1)
-            
-            ymin, ymax, xmin, xmax = bbox
-            global_ymin = min(global_ymin, ymin)
-            global_ymax = max(global_ymax, ymax)
-            global_xmin = min(global_xmin, xmin)
-            global_xmax = max(global_xmax, xmax)
 
             image = image.astype(np.float32) / 255.0
             image = torch.from_numpy(image)  # shape: [H, W, C]
@@ -196,17 +192,6 @@ class ObjaverseDataset(Dataset):
             images.append(image)
             masks.append(mask.squeeze(0))
             cam_poses.append(c2w)
-
-        origin_size = images[0].shape[1]
-        res_ymax = origin_size - global_ymax
-        res_ymin = global_ymin
-        res_xmax = origin_size - global_xmax
-        res_xmin = global_xmin
-        min_res = min(res_ymax, min(res_ymin, min(res_xmax, res_xmin)))
-        images = [image[:, min_res:(origin_size - min_res), min_res:(origin_size - min_res)]
-                  for image in images]
-        masks = [mask[min_res:(origin_size - min_res), min_res:(origin_size - min_res)]
-                  for mask in masks]
 
         view_cnt = len(images)
         if view_cnt < (self.cfg.num_views_input + self.cfg.num_views_output):
