@@ -125,27 +125,27 @@ class ObjaverseDataset(Dataset):
         assert len(self.input_view_ids) == self.cfg.num_views_input
 
         item_path = self.items[idx]
-        input_0 = [(os.path.isfile(os.path.join(item_path, 'elev_0_azim_0_dist_1.5', 'rgb', f)), 0) 
+        input_0 = [(os.path.join(item_path, 'elev_0_azim_0_dist_1.5', 'rgb', f), 0) 
                    for f in os.listdir(os.path.join(item_path, 'elev_0_azim_0_dist_1.5', 'rgb')) 
                    if os.path.isfile(os.path.join(item_path, 'elev_0_azim_0_dist_1.5', 'rgb', f))]
         
-        input_2 = [(os.path.isfile(os.path.join(item_path, 'elev_0_azim_90_dist_1.5', 'rgb', f)), 2) 
+        input_2 = [(os.path.join(item_path, 'elev_0_azim_90_dist_1.5', 'rgb', f), 2) 
                    for f in os.listdir(os.path.join(item_path, 'elev_0_azim_90_dist_1.5', 'rgb')) 
                    if os.path.isfile(os.path.join(item_path, 'elev_0_azim_90_dist_1.5', 'rgb', f))]
         
-        input_4 = [(os.path.isfile(os.path.join(item_path, 'elev_0_azim_180_dist_1.5', 'rgb', f)), 4) 
+        input_4 = [(os.path.join(item_path, 'elev_0_azim_180_dist_1.5', 'rgb', f), 4) 
                    for f in os.listdir(os.path.join(item_path, 'elev_0_azim_180_dist_1.5', 'rgb')) 
                    if os.path.isfile(os.path.join(item_path, 'elev_0_azim_180_dist_1.5', 'rgb', f))]
         
-        input_6 = [(os.path.isfile(os.path.join(item_path, 'elev_0_azim_270_dist_1.5', 'rgb', f)), 6) 
+        input_6 = [(os.path.join(item_path, 'elev_0_azim_270_dist_1.5', 'rgb', f), 6) 
                    for f in os.listdir(os.path.join(item_path, 'elev_0_azim_270_dist_1.5', 'rgb')) 
                    if os.path.isfile(os.path.join(item_path, 'elev_0_azim_270_dist_1.5', 'rgb', f))]
         
-        input_24 = [(os.path.isfile(os.path.join(item_path, 'elev_89.89_azim_180_dist_1.5', 'rgb', f)), 24) 
+        input_24 = [(os.path.join(item_path, 'elev_89.89_azim_180_dist_1.5', 'rgb', f), 24) 
                     for f in os.listdir(os.path.join(item_path, 'elev_89.89_azim_180_dist_1.5', 'rgb')) 
                     if os.path.isfile(os.path.join(item_path, 'elev_89.89_azim_180_dist_1.5', 'rgb', f))]
         
-        ref = [(os.path.isfile(os.path.join(item_path, 'reference', 'rgb', f)), -1) 
+        ref = [(os.path.join(item_path, 'reference', 'rgb', f), -1) 
                for f in os.listdir(os.path.join(item_path, 'reference', 'rgb')) 
                if os.path.isfile(os.path.join(item_path, 'reference', 'rgb', f))]
 
