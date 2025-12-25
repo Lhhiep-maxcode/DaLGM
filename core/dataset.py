@@ -156,23 +156,24 @@ class ObjaverseDataset(Dataset):
         masks = []
         cam_poses = []
         
+        random.shuffle(ref)
         image_paths = [random.choice(input_0), random.choice(input_2), random.choice(input_4), 
-                    random.choice(input_6), random.choice(input_24)] + np.random.permutation(ref).tolist()
+                    random.choice(input_6), random.choice(input_24)] + ref
         image_paths = image_paths[:(self.cfg.num_views_input + self.cfg.num_views_output)]
 
         for (image_path, view_id) in image_paths:
-            if view_id == -1:
+            if view_id < -1:
                 filename = image_path.split("/")[-1]
 
                 pattern = r"elev_([-+]?[0-9]*\.?[0-9]+)_azim_([-+]?[0-9]*\.?[0-9]+)"
                 match = re.search(pattern, filename)
 
                 if match:
-                    elev = int(match.group(1))
-                    azim = int(match.group(2))
+                    elev = float(match.group(1))
+                    azim = float(match.group(2))
 
                     view_id = next(
-                        (k for k, v in self.cam_config.items() if v == [elev, azim]),
+                        (k for k, v in self.cam_config.items() if (abs(elev - v[0]) < 5 and abs(azim - v[1]) < 5)),
                         None
                     )
                 else:
