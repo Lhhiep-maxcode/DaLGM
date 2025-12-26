@@ -149,6 +149,8 @@ def run(cfg: Options, path):
         input_images = input_images.unsqueeze(0).to(device) # [1, V, 9, H, W]
         gaussians = model.forward_gaussians(input_images)
 
+        model.gs.save_ply(gaussians, os.path.join(cfg.workspace, 'result.ply'))
+
         images = []
         elevation = 30
         azimuth = np.arange(0, 720, 4, dtype=np.int32)
