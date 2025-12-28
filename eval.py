@@ -14,6 +14,7 @@ import wandb
 import numpy as np
 import os
 import random
+import time
 
 def main():
     
@@ -67,18 +68,34 @@ def main():
         accelerator.load_state(cfg.resume, strict=False)
 
     if accelerator.is_main_process:
-        accelerator.print(f'[INFO] start evaluation for {len(val_dataset)} objects...')
+        accelerator.print(f'[INFO] start evaluation for {len(val_dataset)} objects...')    
     # eval
     with torch.no_grad():
         model.eval()
         total_psnr = 0
         total_ssim = 0
         total_lpips = 0
+        total_time = 0
+        num_batches = 0
+        
         if accelerator.is_main_process:
             pbar2 = tqdm(val_dataloader, desc=f"[Evaluation]")
 
         for i, data in enumerate(val_dataloader):
+            # Synchronize before timing to ensure accurate measurements
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
+            
+            start_time = time.time()
+            
             out = model(data)
+            
+            # Synchronize after inference to ensure all GPU operations are complete
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
+            
+            end_time = time.time()
+            batch_time = end_time - start_time
 
             psnr = out['psnr']
             ssim = out['ssim']
@@ -86,6 +103,8 @@ def main():
             total_psnr += psnr.detach()
             total_ssim += ssim.detach()
             total_lpips += lpips.detach()
+            total_time += batch_time
+            num_batches += 1
 
             if accelerator.is_main_process:
                 pbar2.update(1)
@@ -109,7 +128,12 @@ def main():
             total_psnr /= len(val_dataloader)
             total_ssim /= len(val_dataloader)
             total_lpips /= len(val_dataloader)
+            avg_time_per_batch = total_time / num_batches
+            avg_time_per_object = total_time / len(val_dataset)
+            
             accelerator.print(f'[EVAL] psnr: {total_psnr:.4f}, ssim: {total_ssim:.4f}, lpips: {total_lpips:.4f}')
+            accelerator.print(f'[EVAL] avg time per batch: {avg_time_per_batch:.4f}s, avg time per object: {avg_time_per_object:.4f}s')
+            accelerator.print(f'[EVAL] total inference time: {total_time:.2f}s for {len(val_dataset)} objects')
 
 
 if __name__ == "__main__":
