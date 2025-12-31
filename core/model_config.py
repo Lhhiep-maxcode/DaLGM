@@ -26,16 +26,16 @@ class Options:
     # data mode (only support s3 now)
     data_mode: Literal['s3'] = 's3'
     # Field of view in y direction of the dataset   
-    fovy: float = 49.1
+    fovy: float = 60
     # camera near plane (for clipping)    
     znear: float = 0.5
     # camera far plane (for clipping)   
     zfar: float = 2.5
     # number of total views
-    num_views_total: int = 25
+    num_views_total: int = 65
     # number of (input + test) views
-    num_views_input: int = 5
-    num_views_output: int = 5
+    num_views_input: int = 9
+    num_views_output: int = 9
     # camera radius (radius of camera orbitting around object)
     cam_radius: float = 1.5 # to better use [-1, 1]^3 space
     # num workers
@@ -46,7 +46,7 @@ class Options:
     workspace: str = './workspace'
     # wandb
     wandb_key: Optional[str] = None
-    wandb_project_name: str ='LGM-4001'
+    wandb_project_name: str ='LGM-9001'
     wandb_experiment_name: str = 'default'
     wandb_experiment_id: Optional[str] = None
     # fine-tuning
