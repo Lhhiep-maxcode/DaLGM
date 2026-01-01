@@ -63,16 +63,19 @@ class ObjaverseDataset(Dataset):
         self.projection_matrix[3, 2] = - (self.cfg.zfar * self.cfg.znear) / (self.cfg.zfar - self.cfg.znear)
         self.projection_matrix[2, 3] = 1
 
-        self.input_view_ids = [
+        self.certain_input_view_ids = [
             [i for i in range(0, 8)],       # (0 -> 45)
-            [i for i in range(8, 16)],      # (45 -> 90)
             [i for i in range(16, 24)],     # (90 -> 135)
-            [i for i in range(24, 32)],     # (135 -> 180)
             [i for i in range(32, 40)],     # (180 -> 225)
-            [i for i in range(40, 48)],     # (225 -> 270)
             [i for i in range(48, 56)],     # (270 -> 315)
-            [i for i in range(56, 64)],     # (315 -> 360)
             [64],                           # (top view)
+        ]
+
+        self.uncertain_input_view_ids = [
+            [i for i in range(8, 16)],      # (45 -> 90)
+            [i for i in range(24, 32)],     # (135 -> 180)
+            [i for i in range(40, 48)],     # (225 -> 270)
+            [i for i in range(56, 64)],     # (315 -> 360)
         ]
         
         self.test_view_ids = [i for i in range(cfg.num_views_total)]
@@ -93,20 +96,22 @@ class ObjaverseDataset(Dataset):
             # │   │   ├── 000.png
             # │   │   ├── 001.png
 
-
-        assert len(self.input_view_ids) == self.cfg.num_views_input
+        num_bonus_views = random.randint(0, 4)
+        bonus_views_list = random.choices(self.uncertain_input_view_ids, k=num_bonus_views)
+        bonus_views = [random.choice(bonus_views_list[i]) for i in range(len(bonus_views_list))]
 
         item_path = self.items[idx]
         results = {}
 
-        # load num_views images
         images = []
         masks = []
         cam_poses = []
         
-        view_ids = [random.choice(self.input_view_ids[i]) for i in range(len(self.input_view_ids))] 
+        view_ids = [random.choice(self.certain_input_view_ids[i]) for i in range(len(self.certain_input_view_ids))]
+        view_ids += bonus_views
+        view_ids += view_ids[-(self.cfg.num_views_input - len(self.certain_input_view_ids) - num_bonus_views):]   # num_views_input always equals to 9
         view_ids += np.random.permutation(self.test_view_ids).tolist()
-        view_ids = view_ids[:(self.cfg.num_views_input + self.cfg.num_views_output)]
+        view_ids = view_ids[:(self.cfg.num_views_input + self.cfg.num_views_output)]    # num_views_input always equals to 9
 
         origin_elev = self.cam_config[view_ids[0]][0]
         origin_azim = self.cam_config[view_ids[0]][1]
@@ -155,17 +160,36 @@ class ObjaverseDataset(Dataset):
         cam_poses = torch.stack(cam_poses, dim=0)  # [V, 4, 4]
 
         # resize input images
-        images_input = F.interpolate(images[:len(self.input_view_ids)].clone(), size=(self.cfg.input_size, self.cfg.input_size), mode='bilinear', align_corners=False)   # [V, C, H, W]
+        images_input = F.interpolate(images[:self.cfg.num_views_input].clone(), size=(self.cfg.input_size, self.cfg.input_size), mode='bilinear', align_corners=False)   # [V, C, H, W]
+        cam_poses_input = cam_poses[:self.cfg.num_views_input].clone()
+        
+        # data augmentation
+        if self.type == 'train':
+            # if random.random() < self.cfg.prob_grid_distortion:
+            #     images_input[1:] = grid_distortion(images_input[1:])
+            if random.random() < self.cfg.prob_cam_jitter:
+                cam_poses_input[1:] = orbit_camera_jitter(cam_poses_input[1:])
 
         images_input = TF.normalize(images_input, IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD)
 
-        results['input'] = images_input
+        # build rays for input views
+        rays_embeddings = []
+        for i in range(self.cfg.num_views_input):
+            rays_o, rays_d = get_rays(cam_poses_input[i], self.cfg.input_size, self.cfg.input_size, self.cfg.fovy) # [h, w, 3]
+            rays_plucker = torch.cat([torch.cross(rays_o, rays_d, dim=-1), rays_d], dim=-1) # [h, w, 6]
+            rays_embeddings.append(rays_plucker)
+
+        rays_embeddings = torch.stack(rays_embeddings, dim=0).permute(0, 3, 1, 2).contiguous() # [V=9, 6, h, w]
+        final_input = torch.cat([images_input, rays_embeddings], dim=1) # [V=9, 9, H, W]
+
+        results['input'] = final_input
+        results['cam_poses_input'] = cam_poses_input
 
         # resize ground-truth images, still in range [0, 1]
-        results['images_output'] = F.interpolate(images[len(self.input_view_ids):].clone(), (self.cfg.output_size, self.cfg.output_size), mode='bilinear', align_corners=False)
-        results['masks_output'] = F.interpolate(masks[len(self.input_view_ids):].clone().unsqueeze(1), (self.cfg.output_size, self.cfg.output_size), mode='bilinear', align_corners=False)
+        results['images_output'] = F.interpolate(images[self.cfg.num_views_input:].clone(), (self.cfg.output_size, self.cfg.output_size), mode='bilinear', align_corners=False)
+        results['masks_output'] = F.interpolate(masks[self.cfg.num_views_input:].clone().unsqueeze(1), (self.cfg.output_size, self.cfg.output_size), mode='bilinear', align_corners=False)
 
-        cam_poses = cam_poses[len(self.input_view_ids):].clone()
+        cam_poses = cam_poses[self.cfg.num_views_input:].clone()
         # opengl to colmap camera for gaussian renderer
         cam_poses[:, :3, 1:3] *= -1 # invert up & forward direction
 
