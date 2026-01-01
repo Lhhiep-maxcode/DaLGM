@@ -6,7 +6,7 @@ from typing import Tuple, Literal, Dict, Optional
 class Options:
     ### MODEL
     # Unet image input size
-    input_size: int = 256
+    input_size: int = 160
     # Unet definition
     down_channels: Tuple[int, ...] = (64, 128, 256, 512, 1024, 1024)
     down_attention: Tuple[bool, ...] = (False, False, False, True, True, True)
@@ -14,9 +14,9 @@ class Options:
     up_channels: Tuple[int, ...] = (1024, 1024, 512, 256)
     up_attention: Tuple[bool, ...] = (True, True, True, False)
     # Unet output size, dependent on the input_size and U-Net structure!
-    splat_size: int = 64
+    splat_size: int = 80
     # gaussian render size
-    output_size: int = 256
+    output_size: int = 512
 
     ### DATASET
     train_size: float = 0.8
