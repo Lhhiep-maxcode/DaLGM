@@ -92,9 +92,7 @@ class ObjaverseDataset(Dataset):
             # │   ├── rgb/
             # │   │   ├── 000.png
             # │   │   ├── 001.png
-            # │   ├── pose/
-            # │   │   ├── 000.txt
-            # │   │   ├── 001.txt
+
 
         assert len(self.input_view_ids) == self.cfg.num_views_input
 
@@ -158,29 +156,10 @@ class ObjaverseDataset(Dataset):
 
         # resize input images
         images_input = F.interpolate(images[:len(self.input_view_ids)].clone(), size=(self.cfg.input_size, self.cfg.input_size), mode='bilinear', align_corners=False)   # [V, C, H, W]
-        cam_poses_input = cam_poses[:len(self.input_view_ids)].clone()
-        
-        # data augmentation
-        if self.type == 'train':
-            # if random.random() < self.cfg.prob_grid_distortion:
-            #     images_input[1:] = grid_distortion(images_input[1:])
-            if random.random() < self.cfg.prob_cam_jitter:
-                cam_poses_input[1:] = orbit_camera_jitter(cam_poses_input[1:])
 
         images_input = TF.normalize(images_input, IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD)
 
-        # build rays for input views
-        rays_embeddings = []
-        for i in range(len(self.input_view_ids)):
-            rays_o, rays_d = get_rays(cam_poses_input[i], self.cfg.input_size, self.cfg.input_size, self.cfg.fovy) # [h, w, 3]
-            rays_plucker = torch.cat([torch.cross(rays_o, rays_d, dim=-1), rays_d], dim=-1) # [h, w, 6]
-            rays_embeddings.append(rays_plucker)
-
-        rays_embeddings = torch.stack(rays_embeddings, dim=0).permute(0, 3, 1, 2).contiguous() # [V=9, 6, h, w]
-        final_input = torch.cat([images_input, rays_embeddings], dim=1) # [V=9, 9, H, W]
-
-        results['input'] = final_input
-        results['cam_poses_input'] = cam_poses_input
+        results['input'] = images_input
 
         # resize ground-truth images, still in range [0, 1]
         results['images_output'] = F.interpolate(images[len(self.input_view_ids):].clone(), (self.cfg.output_size, self.cfg.output_size), mode='bilinear', align_corners=False)
