@@ -49,7 +49,7 @@ class Attention(nn.Module):
         self.proj_drop = nn.Dropout(proj_drop)
 
     def forward(self, x: Tensor) -> Tensor:
-        B, N, C = x.shape
+        B, N, C = x.shape   # (N = H * W * V)
         qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
 
         q, k, v = qkv[0] * self.scale, qkv[1], qkv[2]
