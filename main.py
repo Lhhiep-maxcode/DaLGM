@@ -104,7 +104,7 @@ def main():
     #     pin_memory=True
     # )
 
-    optimizer = torch.optim.AdamW(model.parameters(), lr=cfg.lr, weight_decay=0.05, betas=(0.9, 0.95))
+    optimizer = torch.optim.AdamW(model.parameters(), lr=1.0, weight_decay=0.05, betas=(0.9, 0.95))
 
     # TODO: can consider to tuning the pct_start
     # scheduler (per-step)
