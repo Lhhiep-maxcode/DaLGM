@@ -12,6 +12,14 @@ import tyro
 import kiui
 import wandb
 
+def transformer_lr_lambda(step, d_model=512, warmup_steps=4000, peak_lr=1e-4):
+    """
+    Paper formula:
+    lr = d_model^{-0.5} * min(step^{-0.5}, step * warmup^{-1.5})
+    """
+    step = max(step, 1)
+    return peak_lr * (d_model ** -0.5) * min(step ** -0.5, step * (warmup_steps ** -1.5)) / ((warmup_steps ** -0.5) * (d_model ** -0.5))
+
 def main():
     
     cfg = tyro.cli(AllConfigs)
@@ -99,13 +107,16 @@ def main():
     optimizer = torch.optim.AdamW(model.parameters(), lr=cfg.lr, weight_decay=0.05, betas=(0.9, 0.95))
 
     # TODO: can consider to tuning the pct_start
-    # scheduler (per-iteration)
-    # consider to use ConsineAnnealingWarmRestart to escape local
-    # scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=3000, eta_min=1e-6)
-    total_steps = cfg.num_epochs * len(train_dataloader)
-    pct_start = 3000 / total_steps
-    # Warm up + CosineAnnealingLR
-    scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=cfg.lr, total_steps=total_steps, pct_start=pct_start)
+    # scheduler (per-step)
+    scheduler = torch.optim.lr_scheduler.LambdaLR(
+        optimizer,
+        lr_lambda=lambda step: transformer_lr_lambda(
+            step,
+            d_model=512,
+            warmup_steps=cfg.warmup_steps,
+            peak_lr=cfg.lr
+        )
+    )
 
     # accelerate
     model, optimizer, train_dataloader, test_dataloader, scheduler = accelerator.prepare(
@@ -134,14 +145,12 @@ def main():
         for i, data in enumerate(train_dataloader):
             with accelerator.accumulate(model):
                 # Accumulate to simulate large batch training
-                optimizer.zero_grad()
-
                 step_ratio = (epoch + i / len(train_dataloader)) / cfg.num_epochs
                 lambda_lpips = cfg.lambda_lpips_start * (cfg.lambda_lpips_end / cfg.lambda_lpips_start) ** step_ratio
                 lambda_mse = cfg.lambda_mse_start * (cfg.lambda_mse_end / cfg.lambda_mse_start) ** step_ratio
                 lambda_top = cfg.lambda_top
 
-                out = model(data, lambda_mse, lambda_lpips, lambda_top)
+                out = model(data)
                 loss = out['loss']
                 psnr = out['psnr']
                 ssim = out['ssim']
@@ -156,6 +165,7 @@ def main():
 
                 optimizer.step()
                 scheduler.step()
+                optimizer.zero_grad()
 
                 total_loss += loss.detach()
                 total_psnr += psnr.detach()
@@ -171,7 +181,7 @@ def main():
                     "vr": round((mem_total-mem_free)/1024**3),
                 })
 
-                if i % 10 == 0:
+                if i % (2 * cfg.gradient_accumulation_steps) == 0:
                     run.log({
                         "Learning rate (10 steps)": scheduler.get_last_lr()[0], 
                         "lambda MSE (10 steps)": lambda_mse, 

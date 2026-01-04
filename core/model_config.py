@@ -46,7 +46,7 @@ class Options:
     workspace: str = './workspace'
     # wandb
     wandb_key: Optional[str] = None
-    wandb_project_name: str ='LGM-9001'
+    wandb_project_name: str ='LGM-8001'
     wandb_experiment_name: str = 'default'
     wandb_experiment_id: Optional[str] = None
     # fine-tuning
@@ -70,6 +70,8 @@ class Options:
     gradient_clip: float = 1.0
     # mixed precision
     mixed_precision: str = 'bf16'
+    # Warmup step
+    warmup_steps: int = 4000
     # learning rate
     lr: float = 4e-4
     # augmentation prob for grid distortion
