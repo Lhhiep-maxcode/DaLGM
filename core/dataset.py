@@ -100,7 +100,7 @@ class ObjaverseDataset(Dataset):
 
 
     def __len__(self):
-        return len(self.items)
+        return len(self.items_depth)
     
     def __getitem__(self, idx):
         #  NEED TO PROCESS DATA IN .OBJ FORMAT TO (IMAGE-CAMERA POSE) PAIRS
@@ -127,7 +127,8 @@ class ObjaverseDataset(Dataset):
         
         view_ids = [random.choice(self.certain_input_view_ids[i]) for i in range(len(self.certain_input_view_ids))]
         view_ids += bonus_views
-        view_ids += view_ids[-(self.cfg.num_views_input - len(self.certain_input_view_ids) - num_bonus_views):]   # num_views_input always equals to 9
+        if num_bonus_views < 4:
+            view_ids += view_ids[-(self.cfg.num_views_input - len(self.certain_input_view_ids) - num_bonus_views):]   # num_views_input always equals to 9
         view_ids += np.random.permutation(self.test_view_ids).tolist()
         view_ids = view_ids[:(self.cfg.num_views_input + self.cfg.num_views_output)]    # num_views_input always equals to 9
 
@@ -211,7 +212,7 @@ class ObjaverseDataset(Dataset):
         # resize ground-truth images, still in range [0, 1]
         results['images_output'] = F.interpolate(images[self.cfg.num_views_input:].clone(), (self.cfg.output_size, self.cfg.output_size), mode='bilinear', align_corners=False)
         results['masks_output'] = F.interpolate(masks[self.cfg.num_views_input:].clone().unsqueeze(1), (self.cfg.output_size, self.cfg.output_size), mode='bilinear', align_corners=False)
-        results['depths_output'] = F.interpolate(depths[self.cfg.num_views_input:].clone(), (self.cfg.output_size, self.cfg.output_size), mode='bilinear', align_corners=False)
+        results['depths_output'] = F.interpolate(depths[self.cfg.num_views_input:].clone(), (self.cfg.output_size, self.cfg.output_size), mode='nearest')
 
         cam_poses = cam_poses[self.cfg.num_views_input:].clone()
         # opengl to colmap camera for gaussian renderer
