@@ -117,8 +117,132 @@ class LGM(nn.Module):
 
         gaussians = torch.cat([pos, opacity, scale, rotation, rgbs], dim=-1)    # [B, N, 14]
         return gaussians
-    
-    def forward(self, data, lambda_mse=1, lambda_lpips=1, lambda_top=1):
+
+    def depth_loss(
+        self,
+        depth_3dgs,
+        depth_mesh,
+        alpha_3dgs,
+        alpha_mesh=None,
+        loss_type="l1",
+        min_valid=10,
+    ):
+        """
+        depth_* : [B, V, 1, H, W]
+        alpha_* : [B, V, 1, H, W]
+        """
+        # Nao thử disparity loss xem sao (1/depth)
+
+        B, V, _, H, W = depth_3dgs.shape
+        losses = []
+
+        for b in range(B):
+            for v in range(V):
+                # valid mask per view
+                mask = alpha_3dgs[b, v] > 0.1
+                mask = mask & (depth_mesh[b, v] > 0.01)
+                if alpha_mesh is not None:
+                    mask = mask & (alpha_mesh[b, v] > 0.01)
+
+                if mask.sum() < min_valid:
+                    continue
+
+                d3 = depth_3dgs[b, v][mask]
+                dm = depth_mesh[b, v][mask]
+
+                if loss_type in ["l1", "l2", "huber", "berhu"]:
+                    # per-view min–max scaling
+                    d3_min, d3_max = d3.min(), d3.max()
+                    dm_min, dm_max = dm.min(), dm.max()
+
+                    d3s = (d3 - d3_min) / (d3_max - d3_min + 1e-8)
+                    dms = (dm - dm_min) / (dm_max - dm_min + 1e-8)
+
+                    diff = d3s - dms
+
+                    if loss_type == "l1":
+                        loss = diff.abs().mean()
+                    elif loss_type == "l2":
+                        loss = (diff ** 2).mean()
+                    elif loss_type == "huber":
+                        loss = F.smooth_l1_loss(d3s, dms)
+                    elif loss_type == "berhu":
+                        c = 0.2 * diff.abs().max().detach()
+                        loss = torch.where(
+                            diff.abs() <= c,
+                            diff.abs(),
+                            (diff ** 2 + c ** 2) / (2 * c),
+                        ).mean()
+
+                elif loss_type == "scale_invariant":
+                    # Var(X) + 0.5 * (E(X))^2 ==> relative and absolute
+                    log_d3 = torch.log(d3 + 1e-8)
+                    log_dm = torch.log(dm + 1e-8)
+                    diff = log_d3 - log_dm
+                    loss = diff.pow(2).mean() - 0.5 * diff.mean().pow(2)
+
+                else:
+                    raise ValueError(f"Unknown loss type: {loss_type}")
+
+                losses.append(loss)
+
+        if len(losses) == 0:
+            return torch.tensor(0.0, device=depth_3dgs.device)
+
+        return torch.stack(losses).mean()
+
+    def depth_gradient_loss(self, depth_3dgs, depth_mesh, alpha_3dgs, alpha_mesh=None, min_valid=10):
+        """
+        depth_* : [B, V, 1, H, W]
+        alpha_* : [B, V, 1, H, W]
+        """
+        B, V, _, H, W = depth_3dgs.shape
+        losses = []
+        
+        # Precompute Sobel filters once
+        sobel_x = torch.tensor([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]], 
+                            dtype=torch.float32, device=depth_3dgs.device).view(1, 1, 3, 3)
+        sobel_y = sobel_x.transpose(-2, -1)
+        
+        for b in range(B):
+            for v in range(V):
+                # Valid mask (crop by 1 on each side to match conv output size)
+                mask_3dgs = alpha_3dgs[b, v, 0, 1:-1, 1:-1] > 0.1
+                mask_mesh = depth_mesh[b, v, 0, 1:-1, 1:-1] > 0
+                if alpha_mesh is not None:
+                    mask_mesh = mask_mesh & (alpha_mesh[b, v, 0, 1:-1, 1:-1] > 0.01)
+                valid_mask = mask_3dgs & mask_mesh
+                
+                if valid_mask.sum() < min_valid:
+                    continue
+                
+                # Add batch and channel dimensions
+                d_3dgs = depth_3dgs[b, v].unsqueeze(0)  # [1, 1, H, W]
+                d_mesh = depth_mesh[b, v].unsqueeze(0)  # [1, 1, H, W]
+
+                # Compute gradients (output is [1, 1, H-2, W-2])
+                grad_x_3dgs = F.conv2d(d_3dgs, sobel_x)
+                grad_y_3dgs = F.conv2d(d_3dgs, sobel_y)
+                
+                grad_x_mesh = F.conv2d(d_mesh, sobel_x)
+                grad_y_mesh = F.conv2d(d_mesh, sobel_y)
+                
+                # Compute gradient magnitude
+                grad_mag_3dgs = torch.sqrt(grad_x_3dgs ** 2 + grad_y_3dgs ** 2 + 1e-8)
+                grad_mag_mesh = torch.sqrt(grad_x_mesh ** 2 + grad_y_mesh ** 2 + 1e-8)
+                
+                grad_mag_3dgs = grad_mag_3dgs.squeeze()[valid_mask]
+                grad_mag_mesh = grad_mag_mesh.squeeze()[valid_mask]
+                
+                loss = F.l1_loss(grad_mag_3dgs, grad_mag_mesh)
+                losses.append(loss)
+
+        if len(losses) == 0:
+            return torch.tensor(0.0, device=depth_3dgs.device)
+            
+        return torch.stack(losses).mean()
+
+    def forward(self, data, lambda_mse=1, lambda_lpips=0.5, lambda_depth=0.01, lambda_grad=0.01, lambda_opacity=0.1):
         # data: output of the dataloader
         # data = {
         #     [C, H, W]
@@ -159,17 +283,19 @@ class LGM(nn.Module):
         pred_images = rendered_results['image']  # [B, V, C, output_size, output_size]
         pred_alphas = rendered_results['alpha']  # [B, V, 1, output_size, output_size]
         pred_images = pred_images * pred_alphas + (1 - pred_alphas) * bg_color.view(1, 1, 3, 1, 1)
+        pred_depths = rendered_results['depth']  # [B, V, 1, output_size, output_size]
 
         results['images_pred'] = pred_images
         results['alphas_pred'] = pred_alphas
+        results['depths_pred'] = pred_depths
 
         gt_images = data['images_output']   # [B, V, 3, output_size, output_size], ground-truth novel views
         gt_masks = data['masks_output']     # [B, V, 1, output_size, output_size], ground-truth masks
+        gt_depths = data['depths_output']   # [B, V, 1, output_size, output_size], ground-truth depths
 
         gt_images = gt_images * gt_masks + (1 - gt_masks) * bg_color.view(1, 1, 3, 1, 1)
 
         loss_mse_all = F.mse_loss(pred_images, gt_images) + self.cfg.lambda_alpha * F.mse_loss(pred_alphas, gt_masks)
-        # loss_mse_top = F.mse_loss(pred_images[:, 4], gt_images[:, 4]) + self.cfg.lambda_alpha * F.mse_loss(pred_alphas[:, 4], gt_masks[:, 4])
         loss = loss + lambda_mse * (loss_mse_all) # + lambda_mse * (lambda_top - 1) * loss_mse_top
 
         if lambda_lpips > 0:
@@ -178,12 +304,31 @@ class LGM(nn.Module):
                 F.interpolate(gt_images.view(-1, 3, self.cfg.output_size, self.cfg.output_size) * 2 - 1, (256, 256), mode='bilinear', align_corners=False),
                 F.interpolate(pred_images.view(-1, 3, self.cfg.output_size, self.cfg.output_size) * 2 - 1, (256, 256), mode='bilinear', align_corners=False),
             ).mean()
-            # loss_lpips_top = self.lpips_loss(
-            #     # Rescale value from [0, 1] to [-1, -1] and resize to 256 to save memory cost
-            #     F.interpolate(gt_images[:, 4].view(-1, 3, self.cfg.output_size, self.cfg.output_size) * 2 - 1, (256, 256), mode='bilinear', align_corners=False),
-            #     F.interpolate(pred_images[:, 4].view(-1, 3, self.cfg.output_size, self.cfg.output_size) * 2 - 1, (256, 256), mode='bilinear', align_corners=False),
-            # ).mean()
             loss = loss + lambda_lpips * (loss_lpips_all) # + lambda_lpips * (lambda_top - 1) * loss_lpips_top
+
+        if lambda_depth > 0:
+            loss_depth_all = self.depth_loss(
+                pred_depths,
+                gt_depths,
+                pred_alphas,
+                gt_masks,
+                loss_type='l1',
+            )
+            loss = loss + lambda_depth * (loss_depth_all)
+        
+        if lambda_grad > 0:
+            loss_grad_all = self.depth_gradient_loss(
+                pred_depths,
+                gt_depths,
+                pred_alphas,
+                gt_masks,
+            )
+            loss = loss + lambda_grad * (loss_grad_all)
+        
+        if lambda_opacity > 0:
+            # opacity regularization
+            loss_opacity = gaussians[..., 3:4].mean()
+            loss = loss + lambda_opacity * loss_opacity
 
         results['loss'] = loss
 

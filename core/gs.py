@@ -42,6 +42,7 @@ class GaussianRenderer:
         # loop of loop...
         images = []
         alphas = []
+        depths = []
         for b in range(B):
 
             # pos, opacity, scale, rotation, shs
@@ -91,13 +92,15 @@ class GaussianRenderer:
 
                 images.append(rendered_image)
                 alphas.append(rendered_alpha)
+                depths.append(rendered_depth)
 
         images = torch.stack(images, dim=0).view(B, V, 3, self.cfg.output_size, self.cfg.output_size)
         alphas = torch.stack(alphas, dim=0).view(B, V, 1, self.cfg.output_size, self.cfg.output_size)
-
+        depths = torch.stack(alphas, dim=0).view(B, V, 1, self.cfg.output_size, self.cfg.output_size)
         return {
             "image": images, # [B, V, 3, H, W]
             "alpha": alphas, # [B, V, 1, H, W]
+            "depth": depths, # [B, V, 1, H, W]
         }
 
     def save_ply(self, gaussians, path, compatible=True):

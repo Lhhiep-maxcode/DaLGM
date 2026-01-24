@@ -64,8 +64,12 @@ class Options:
     lambda_mse_start: float = 1.0
     lambda_mse_end: float = 1.0
     # lpips loss weight (loss = L_mse + lambda * L_lpips)
-    lambda_lpips_start: float = 1.0
-    lambda_lpips_end: float = 1.0
+    lambda_lpips_start: float = 0.5
+    lambda_lpips_end: float = 0.5
+    # depth loss weight
+    lambda_depth: float = 0.01
+    lambda_grad: float = 0.01
+    lambda_opacity: float = 0.1
     # gradient clip
     gradient_clip: float = 1.0
     # mixed precision
