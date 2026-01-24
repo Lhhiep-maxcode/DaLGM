@@ -73,8 +73,12 @@ def main():
             else:
                 accelerator.print(f'[WARN] unexpected param {k}: {v.shape}')
 
-    
-    train_dataset = Dataset(data_path=cfg.data_path, cfg=cfg, type='train')
+    train_dataset = Dataset(
+        data_path=cfg.data_path, 
+        depth1_path=cfg.depth1_path, 
+        depth2_path=cfg.depth2_path, 
+        depth3_path=cfg.depth3_path, 
+        depth4_path=cfg.depth4_path, cfg=cfg, type='train')
     train_dataloader = torch.utils.data.DataLoader(
         train_dataset,
         batch_size=cfg.batch_size,
@@ -84,7 +88,12 @@ def main():
         drop_last=True
     )
 
-    test_dataset = Dataset(data_path=cfg.data_path, cfg=cfg, type='test')
+    test_dataset = Dataset(
+        data_path=cfg.data_path, 
+        depth1_path=cfg.depth1_path, 
+        depth2_path=cfg.depth2_path, 
+        depth3_path=cfg.depth3_path, 
+        depth4_path=cfg.depth4_path, cfg=cfg, type='test')
     test_dataloader = torch.utils.data.DataLoader(
         test_dataset,
         batch_size=cfg.batch_size,
