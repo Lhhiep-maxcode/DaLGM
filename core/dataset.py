@@ -29,31 +29,45 @@ IMAGENET_DEFAULT_STD = (0.229, 0.224, 0.225)
 
 
 class ObjaverseDataset(Dataset):
-    def __init__(self, data_path, cfg: Options, type: Literal['train', 'test', 'val']='train'):
+    def __init__(
+        self, 
+        data_path, 
+        depth1_path, # /kaggle/input/10k-dataset-9-views-depth-and-normal
+        depth2_path, # /kaggle/input/10k-dataset-9-views-depth-and-normal-2
+        depth3_path, # /kaggle/input/10k-dataset-9-views-depth-and-normal-3
+        depth4_path, # /kaggle/input/10k-dataset-9-views-depth-and-normal-4
+        cfg: Options, 
+        type: Literal['train', 'test', 'val']='train'
+    ):
         
         self.data_path = data_path
         self.cfg = cfg
         self.type = type if type in ['train', 'test', 'val'] else 'train'
-
         
-        self.subfolder = [os.path.join(data_path, sub) for sub in os.listdir(data_path) 
-                          if os.path.isdir(os.path.join(data_path, sub))]
+        self.subfolder_depth = []
+        self.subfolder_depth.extend([os.path.join(depth1_path, sub) for sub in os.listdir(depth1_path) 
+                          if os.path.isdir(os.path.join(depth1_path, sub))])
+        self.subfolder_depth.extend([os.path.join(depth2_path, sub) for sub in os.listdir(depth2_path) 
+                          if os.path.isdir(os.path.join(depth2_path, sub))])
+        self.subfolder_depth.extend([os.path.join(depth3_path, sub) for sub in os.listdir(depth3_path) 
+                          if os.path.isdir(os.path.join(depth3_path, sub))])
+        self.subfolder_depth.extend([os.path.join(depth4_path, sub) for sub in os.listdir(depth4_path) 
+                          if os.path.isdir(os.path.join(depth4_path, sub))])
         
-        self.items = []
+        self.items_depth = []
 
-        for sub in self.subfolder:
+        for sub in self.subfolder_depth:
             for item in os.listdir(sub):
                 item_path = os.path.join(sub, item)
-                self.items.append(item_path)
+                self.items_depth.append(item_path)
 
         # naive split
         if self.type == 'val':
-            self.items = self.items[-int(self.cfg.val_size * len(self.items)):]
+            self.items_depth = self.items_depth[-int(self.cfg.val_size * len(self.items_depth)):]
         elif self.type == 'test':
-            self.items = self.items[-int((self.cfg.val_size + self.cfg.test_size) * len(self.items)):-int(self.cfg.val_size * len(self.items) - 1)]
+            self.items_depth = self.items_depth[-int((self.cfg.val_size + self.cfg.test_size) * len(self.items_depth)):-int(self.cfg.val_size * len(self.items_depth) - 1)]
         else:
-            self.items = self.items[:int(self.cfg.train_size * len(self.items))]
-
+            self.items_depth = self.items_depth[:int(self.cfg.train_size * len(self.items_depth))]
         # default camera intrinsics
         self.tan_half_fov = np.tan(0.5 * np.deg2rad(self.cfg.fovy))
         self.projection_matrix = torch.zeros(4, 4, dtype=torch.float32)
@@ -100,11 +114,15 @@ class ObjaverseDataset(Dataset):
         bonus_views_list = random.choices(self.uncertain_input_view_ids, k=num_bonus_views)
         bonus_views = [random.choice(bonus_views_list[i]) for i in range(len(bonus_views_list))]
 
-        item_path = self.items[idx]
+        item_depth_path = self.items_depth[idx]
+        item_name = item_depth_path.split('/')[-1]
+        archive_name = item_depth_path.split('/')[-2]
+        item_path = os.path.join(self.data_path, archive_name, item_name)
         results = {}
 
         images = []
         masks = []
+        depths = []
         cam_poses = []
         
         view_ids = [random.choice(self.certain_input_view_ids[i]) for i in range(len(self.certain_input_view_ids))]
@@ -122,6 +140,8 @@ class ObjaverseDataset(Dataset):
 
             # try:
             image = cv2.imread(image_path, cv2.IMREAD_UNCHANGED)  # shape: [512, 512, 4]
+            depth = torch.from_numpy(np.load(os.path.join(item_depth_path, 'depth', f'{view_id:03d}.npy')))  # shape: [512, 512]
+            depth = depth.unsqueeze(0)  # [1, H, W]
             
             image = image.astype(np.float32) / 255.0
             image = torch.from_numpy(image)  # shape: [H, W, C]
@@ -144,6 +164,7 @@ class ObjaverseDataset(Dataset):
 
             images.append(image)
             masks.append(mask.squeeze(0))
+            depths.append(depth)
             cam_poses.append(c2w)
 
         view_cnt = len(images)
@@ -153,10 +174,12 @@ class ObjaverseDataset(Dataset):
             n = (self.cfg.num_views_input + self.cfg.num_views_output) - view_cnt
             images = images + [images[-1]] * n
             masks = masks + [masks[-1]] * n
+            depths = depths + [depths[-1]] * n
             cam_poses = cam_poses + [cam_poses[-1]] * n
 
         images = torch.stack(images, dim=0)     # [V, C, H, W]
         masks = torch.stack(masks, dim=0)       # [V, H, W]
+        depths = torch.stack(depths, dim=0)     # [V, 1, H, W]
         cam_poses = torch.stack(cam_poses, dim=0)  # [V, 4, 4]
 
         # resize input images
@@ -188,6 +211,7 @@ class ObjaverseDataset(Dataset):
         # resize ground-truth images, still in range [0, 1]
         results['images_output'] = F.interpolate(images[self.cfg.num_views_input:].clone(), (self.cfg.output_size, self.cfg.output_size), mode='bilinear', align_corners=False)
         results['masks_output'] = F.interpolate(masks[self.cfg.num_views_input:].clone().unsqueeze(1), (self.cfg.output_size, self.cfg.output_size), mode='bilinear', align_corners=False)
+        results['depths_output'] = F.interpolate(depths[self.cfg.num_views_input:].clone(), (self.cfg.output_size, self.cfg.output_size), mode='bilinear', align_corners=False)
 
         cam_poses = cam_poses[self.cfg.num_views_input:].clone()
         # opengl to colmap camera for gaussian renderer
@@ -208,6 +232,7 @@ class ObjaverseDataset(Dataset):
         #     'cam_poses_input': ...,   
         #     'images_output': ...,     (9x3x512x512)
         #     'masks_output': ...,      (.......)
+        #     'depths_output': ...,     (.......)
         #     'cam_view_output': ...,          (colmap coordinate)
         #     'cam_view_proj_output': ...,     (colmap coordinate)
         #     'cam_pos_output': ...,           (colmap coordinate)
