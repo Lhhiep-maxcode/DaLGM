@@ -242,7 +242,7 @@ class LGM(nn.Module):
             
         return torch.stack(losses).mean()
 
-    def forward(self, data, lambda_mse=1, lambda_lpips=0.5, lambda_depth=0.01, lambda_grad=0.01, lambda_opacity=0.1):
+    def forward(self, data, lambda_mse=1, lambda_lpips=0.5, lambda_depth=0.01, lambda_grad=0.01, lambda_opacity=0.1, depth_loss_type='l1'):
         # data: output of the dataloader
         # data = {
         #     [C, H, W]
@@ -312,7 +312,7 @@ class LGM(nn.Module):
                 gt_depths,
                 pred_alphas,
                 gt_masks,
-                loss_type='l1',
+                loss_type=depth_loss_type,
             )
             loss = loss + lambda_depth * (loss_depth_all)
         

@@ -42,7 +42,11 @@ def main():
             "lambda_lpips_end": cfg.lambda_lpips_end,
             "lambda_mse_start": cfg.lambda_mse_start,
             "lambda_mse_end": cfg.lambda_mse_end,
-            "lambda_alpha": cfg.lambda_alpha,          
+            "lambda_alpha": cfg.lambda_alpha,
+            "lambda_depth": cfg.lambda_depth,
+            "lambda_grad": cfg.lambda_grad,
+            "lambda_opacity": cfg.lambda_opacity,
+            "depth_loss_type": cfg.depth_loss_type,         
         },
     )
 
@@ -160,8 +164,18 @@ def main():
                 lambda_depth = cfg.lambda_depth
                 lambda_grad = cfg.lambda_grad
                 lambda_opacity = cfg.lambda_opacity
+                depth_loss_type = cfg.depth_loss_type
 
-                out = model(data, lambda_mse=lambda_mse, lambda_lpips=lambda_lpips, lambda_depth=lambda_depth, lambda_grad=lambda_grad, lambda_opacity=lambda_opacity)
+                out = model(
+                    data, 
+                    lambda_mse=lambda_mse, 
+                    lambda_lpips=lambda_lpips, 
+                    lambda_depth=lambda_depth, 
+                    lambda_grad=lambda_grad, 
+                    lambda_opacity=lambda_opacity, 
+                    depth_loss_type=depth_loss_type
+                )
+
                 loss = out['loss']
                 psnr = out['psnr']
                 ssim = out['ssim']
