@@ -149,6 +149,10 @@ def main():
         total_psnr = 0
         total_ssim = 0
         total_lpips = 0
+        total_abs_diff = 0
+        total_abs_rel = 0
+        total_sq_rel = 0
+        total_delta_1 = 0
         # Create tqdm only on main process
         if accelerator.is_main_process:
             print(f"----------Epoch {epoch + 1}----------")
@@ -180,6 +184,11 @@ def main():
                 psnr = out['psnr']
                 ssim = out['ssim']
                 lpips = out['lpips']
+                abs_diff = out['abs_diff']
+                abs_rel = out['abs_rel']
+                sq_rel = out['sq_rel']
+                delta_1 = out['delta_1']
+
 
                 accelerator.backward(loss)
 
@@ -196,11 +205,20 @@ def main():
                 psnr_val = psnr.detach().item()
                 ssim_val = ssim.detach().item()
                 lpips_val = lpips.detach().item()
+                abs_diff_val = abs_diff.detach().item()
+                abs_rel_val = abs_rel.detach().item()
+                sq_rel_val = sq_rel.detach().item()
+                delta_1_val = delta_1.detach().item()
+
 
                 total_loss += loss_val
                 total_psnr += psnr_val
                 total_ssim += ssim_val
                 total_lpips += lpips_val
+                total_abs_diff += abs_diff_val
+                total_abs_rel += abs_rel_val
+                total_sq_rel += sq_rel_val
+                total_delta_1 += delta_1_val
 
             if accelerator.is_main_process:
                 pbar.update(1)
@@ -220,6 +238,10 @@ def main():
                         "Train psnr (10 steps)": psnr_val,
                         "Train ssim (10 steps)": ssim_val,
                         "Train lpips (10 steps)": lpips_val,
+                        "Train abs_diff (10 steps)": abs_diff_val,
+                        "Train abs_rel (10 steps)": abs_rel_val,
+                        "Train sq_rel (10 steps)": sq_rel_val,
+                        "Train delta_1 (10 steps)": delta_1_val,
                     })
 
                 # save log images
@@ -258,8 +280,12 @@ def main():
             total_psnr /= len(train_dataloader)
             total_ssim /= len(train_dataloader)
             total_lpips /= len(train_dataloader)
-            accelerator.print(f"[TRAIN INFO] Epoch: {epoch + 1} loss: {total_loss:.6f} psnr: {total_psnr:.4f} ssim: {total_ssim:.4f} lpips: {total_lpips:.4f}")
-            run.log({"Train loss (Epoch)": total_loss, "Train psnr (Epoch)": total_psnr, "Train ssim (Epoch)": total_ssim, "Train lpips (Epoch)": total_lpips})
+            total_abs_diff /= len(train_dataloader)
+            total_abs_rel /= len(train_dataloader)
+            total_sq_rel /= len(train_dataloader)
+            total_delta_1 /= len(train_dataloader)
+            accelerator.print(f"[TRAIN INFO] Epoch: {epoch + 1} loss: {total_loss:.6f} psnr: {total_psnr:.4f} ssim: {total_ssim:.4f} lpips: {total_lpips:.4f} abs_diff: {total_abs_diff:.4f} abs_rel: {total_abs_rel:.4f} sq_rel: {total_sq_rel:.4f} delta_1: {total_delta_1:.4f}")
+            run.log({"Train loss (Epoch)": total_loss, "Train psnr (Epoch)": total_psnr, "Train ssim (Epoch)": total_ssim, "Train lpips (Epoch)": total_lpips, "Train abs_diff (Epoch)": total_abs_diff, "Train abs_rel (Epoch)": total_abs_rel, "Train sq_rel (Epoch)": total_sq_rel, "Train delta_1 (Epoch)": total_delta_1})
 
         accelerator.wait_for_everyone()
         accelerator.save_state(output_dir=f'{cfg.workspace}/lastest')
@@ -270,6 +296,10 @@ def main():
             total_psnr = 0
             total_ssim = 0
             total_lpips = 0
+            total_abs_diff = 0
+            total_abs_rel = 0
+            total_sq_rel = 0
+            total_delta_1 = 0
             if accelerator.is_main_process:
                 pbar2 = tqdm(test_dataloader, desc=f"[E] E{epoch + 1}/{cfg.num_epochs}")
 
@@ -283,6 +313,15 @@ def main():
                 total_ssim += ssim.detach().item()
                 total_lpips += lpips.detach().item()
 
+                abs_diff = out['abs_diff']
+                abs_rel = out['abs_rel']
+                sq_rel = out['sq_rel']
+                delta_1 = out['delta_1']
+                total_abs_diff += abs_diff.detach().item()
+                total_abs_rel += abs_rel.detach().item()
+                total_sq_rel += sq_rel.detach().item()
+                total_delta_1 += delta_1.detach().item()
+
                 if accelerator.is_main_process:
                     pbar2.update(1)
                     if i % 100 == 0:
@@ -294,25 +333,38 @@ def main():
                         pred_images = pred_images.transpose(0, 3, 1, 4, 2).reshape(-1, pred_images.shape[1] * pred_images.shape[3], 3)
                         kiui.utils.write_image(f'{cfg.workspace}/{epoch}_{i}_eval_pred_images.jpg', pred_images)
 
-                del out, psnr, ssim, lpips
+                del out, psnr, ssim, lpips, abs_diff, abs_rel, sq_rel, delta_1
 
             if accelerator.is_main_process:
                 pbar2.close()
             torch.cuda.empty_cache()
 
             total_psnr_tensor = torch.tensor(total_psnr, device=accelerator.device)
-            total_psnr = accelerator.gather_for_metrics(total_psnr_tensor).mean().item()
             total_ssim_tensor = torch.tensor(total_ssim, device=accelerator.device)
-            total_ssim = accelerator.gather_for_metrics(total_ssim_tensor).mean().item()
             total_lpips_tensor = torch.tensor(total_lpips, device=accelerator.device)
+            total_abs_diff_tensor = torch.tensor(total_abs_diff, device=accelerator.device)
+            total_abs_rel_tensor = torch.tensor(total_abs_rel, device=accelerator.device)
+            total_sq_rel_tensor = torch.tensor(total_sq_rel, device=accelerator.device)
+            total_delta_1_tensor = torch.tensor(total_delta_1, device=accelerator.device)
+            
+            total_psnr = accelerator.gather_for_metrics(total_psnr_tensor).mean().item()
+            total_ssim = accelerator.gather_for_metrics(total_ssim_tensor).mean().item()
             total_lpips = accelerator.gather_for_metrics(total_lpips_tensor).mean().item()
+            total_abs_diff = accelerator.gather_for_metrics(total_abs_diff_tensor).mean().item()
+            total_abs_rel = accelerator.gather_for_metrics(total_abs_rel_tensor).mean().item()
+            total_sq_rel = accelerator.gather_for_metrics(total_sq_rel_tensor).mean().item()
+            total_delta_1 = accelerator.gather_for_metrics(total_delta_1_tensor).mean().item()
             
             if accelerator.is_main_process:
                 total_psnr /= len(test_dataloader)
                 total_ssim /= len(test_dataloader)
                 total_lpips /= len(test_dataloader)
-                run.log({"Test psnr (Epoch)": total_psnr, "Test ssim (Epoch)": total_ssim, "Test lpips (Epoch)": total_lpips})
-                accelerator.print(f"[EVAL INFO] Epoch: {epoch + 1} psnr: {total_psnr:.4f} ssim: {total_ssim:.4f} lpips: {total_lpips:.4f}")
+                total_abs_diff /= len(test_dataloader)
+                total_abs_rel /= len(test_dataloader)
+                total_sq_rel /= len(test_dataloader)
+                total_delta_1 /= len(test_dataloader)
+                run.log({"Test psnr (Epoch)": total_psnr, "Test ssim (Epoch)": total_ssim, "Test lpips (Epoch)": total_lpips, "Test abs_diff (Epoch)": total_abs_diff, "Test abs_rel (Epoch)": total_abs_rel, "Test sq_rel (Epoch)": total_sq_rel, "Test delta_1 (Epoch)": total_delta_1})
+                accelerator.print(f"[EVAL INFO] Epoch: {epoch + 1} psnr: {total_psnr:.4f} ssim: {total_ssim:.4f} lpips: {total_lpips:.4f} abs_diff: {total_abs_diff:.4f} abs_rel: {total_abs_rel:.4f} sq_rel: {total_sq_rel:.4f} delta_1: {total_delta_1:.4f}")
 
             if total_psnr > best_psnr_eval:
                 best_psnr_eval = total_psnr
