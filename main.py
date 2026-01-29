@@ -192,17 +192,22 @@ def main():
                 scheduler.step()
                 optimizer.zero_grad()
 
-                total_loss += loss.detach()
-                total_psnr += psnr.detach()
-                total_ssim += ssim.detach()
-                total_lpips += lpips.detach()
+                loss_val = loss.detach().item()
+                psnr_val = psnr.detach().item()
+                ssim_val = ssim.detach().item()
+                lpips_val = lpips.detach().item()
+
+                total_loss += loss_val
+                total_psnr += psnr_val
+                total_ssim += ssim_val
+                total_lpips += lpips_val
 
             if accelerator.is_main_process:
                 pbar.update(1)
                 mem_free, mem_total = torch.cuda.mem_get_info()
                 pbar.set_postfix({
-                    "ls": float(loss.detach()),
-                    "psnr": float(psnr.detach()),
+                    "ls": loss_val,
+                    "psnr": psnr_val,
                     "vr": round((mem_total-mem_free)/1024**3),
                 })
 
@@ -211,10 +216,10 @@ def main():
                         "Learning rate (10 steps)": scheduler.get_last_lr()[0], 
                         "lambda MSE (10 steps)": lambda_mse, 
                         "lambda LPIPS (10 steps)": lambda_lpips,
-                        "Train loss (10 steps)": loss.detach(), 
-                        "Train psnr (10 steps)": psnr.detach(),
-                        "Train ssim (10 steps)": ssim.detach(),
-                        "Train lpips (10 steps)": lpips.detach(),
+                        "Train loss (10 steps)": loss_val, 
+                        "Train psnr (10 steps)": psnr_val,
+                        "Train ssim (10 steps)": ssim_val,
+                        "Train lpips (10 steps)": lpips_val,
                     })
 
                 # save log images
@@ -235,12 +240,18 @@ def main():
                         pred_mask = out['alphas_pred'].detach().cpu().numpy() # [B, V, 3, output_size, output_size]
                         pred_mask = pred_mask.transpose(0, 3, 1, 4, 2).reshape(-1, pred_mask.shape[1] * pred_mask.shape[3], 1)  # [B * output_size, V * output_size, 3]
                         kiui.write_image(f'{cfg.workspace}/{epoch}_{i}_train_pred_mask.jpg', pred_mask)
-
+        
+            del out, loss, psnr, ssim, lpips
         if accelerator.is_main_process:
             pbar.close()
         
-        total_loss = accelerator.gather_for_metrics(total_loss).mean()  # calculate avg loss for 1 gpu: [loss_gpu1, loss_gpu2, ...] -> [loss_gpu_avg]
-        total_psnr = accelerator.gather_for_metrics(total_psnr).mean()
+        torch.cuda.empty_cache()
+
+        total_loss_tensor = torch.tensor(total_loss, device=accelerator.device)
+        total_psnr_tensor = torch.tensor(total_psnr, device=accelerator.device)
+        
+        total_loss = accelerator.gather_for_metrics(total_loss_tensor).mean().item()
+        total_psnr = accelerator.gather_for_metrics(total_psnr_tensor).mean().item()
 
         if accelerator.is_main_process:
             total_loss /= len(train_dataloader)
@@ -268,9 +279,9 @@ def main():
                 psnr = out['psnr']
                 ssim = out['ssim']
                 lpips = out['lpips']
-                total_psnr += psnr.detach()
-                total_ssim += ssim.detach()
-                total_lpips += lpips.detach()
+                total_psnr += psnr.detach().item()
+                total_ssim += ssim.detach().item()
+                total_lpips += lpips.detach().item()
 
                 if accelerator.is_main_process:
                     pbar2.update(1)
@@ -283,11 +294,19 @@ def main():
                         pred_images = pred_images.transpose(0, 3, 1, 4, 2).reshape(-1, pred_images.shape[1] * pred_images.shape[3], 3)
                         kiui.utils.write_image(f'{cfg.workspace}/{epoch}_{i}_eval_pred_images.jpg', pred_images)
 
+                del out, psnr, ssim, lpips
+
             if accelerator.is_main_process:
                 pbar2.close()
             torch.cuda.empty_cache()
 
-            total_psnr = accelerator.gather_for_metrics(total_psnr).mean()
+            total_psnr_tensor = torch.tensor(total_psnr, device=accelerator.device)
+            total_psnr = accelerator.gather_for_metrics(total_psnr_tensor).mean().item()
+            total_ssim_tensor = torch.tensor(total_ssim, device=accelerator.device)
+            total_ssim = accelerator.gather_for_metrics(total_ssim_tensor).mean().item()
+            total_lpips_tensor = torch.tensor(total_lpips, device=accelerator.device)
+            total_lpips = accelerator.gather_for_metrics(total_lpips_tensor).mean().item()
+            
             if accelerator.is_main_process:
                 total_psnr /= len(test_dataloader)
                 total_ssim /= len(test_dataloader)
