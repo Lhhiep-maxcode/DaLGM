@@ -242,6 +242,58 @@ class LGM(nn.Module):
             
         return torch.stack(losses).mean()
 
+    def depth_metrics(self, pred_depth, gt_depth, pred_alpha, gt_alpha=None, min_valid=10):
+        """
+        abs_diff, abs_rel, sq_rel, delta<1.25
+        """
+        B, V = pred_depth.shape[:2]
+        
+        abs_diff_list = []
+        abs_rel_list = []
+        sq_rel_list = []
+        delta_1_list = []
+        
+        for b in range(B):
+            for v in range(V):
+                mask = pred_alpha[b, v] > 0.1
+                mask = mask & (gt_depth[b, v] > 0.01)
+                if gt_alpha is not None:
+                    mask = mask & (gt_alpha[b, v] > 0.01)
+                
+                if mask.sum() < min_valid:
+                    continue
+                
+                pred = pred_depth[b, v][mask]
+                gt = gt_depth[b, v][mask]
+                
+                abs_diff = torch.abs(pred - gt).mean()
+                abs_diff_list.append(abs_diff)
+                
+                abs_rel = (torch.abs(pred - gt) / (gt + 1e-8)).mean()
+                abs_rel_list.append(abs_rel)
+                
+                sq_rel = (((pred - gt) ** 2) / (gt + 1e-8)).mean()
+                sq_rel_list.append(sq_rel)
+                
+                thresh = torch.max(pred / (gt + 1e-8), gt / (pred + 1e-8))
+                delta_1 = (thresh < 1.25).float().mean()
+                delta_1_list.append(delta_1)
+        
+        if len(abs_diff_list) == 0:
+            return {
+                'abs_diff': torch.tensor(0.0, device=pred_depth.device),
+                'abs_rel': torch.tensor(0.0, device=pred_depth.device),
+                'sq_rel': torch.tensor(0.0, device=pred_depth.device),
+                'delta_1': torch.tensor(0.0, device=pred_depth.device),
+            }
+        
+        return {
+            'abs_diff': torch.stack(abs_diff_list).mean(),
+            'abs_rel': torch.stack(abs_rel_list).mean(),
+            'sq_rel': torch.stack(sq_rel_list).mean(),
+            'delta_1': torch.stack(delta_1_list).mean(),
+        }
+
     def forward(self, data, lambda_mse=1, lambda_lpips=0.5, lambda_depth=0.01, lambda_grad=0.01, lambda_opacity=0.1, depth_loss_type='l1'):
         # data: output of the dataloader
         # data = {
@@ -350,5 +402,12 @@ class LGM(nn.Module):
                 F.interpolate(pred_images.view(-1, 3, self.cfg.output_size, self.cfg.output_size) * 2 - 1, (256, 256), mode='bilinear', align_corners=False),
             ).mean()
             results['lpips'] = lpips
+
+            # Depth metrics
+            depth_metrics = self.depth_metrics(pred_depths, gt_depths, pred_alphas, gt_masks)
+            results['abs_diff'] = depth_metrics['abs_diff']
+            results['abs_rel'] = depth_metrics['abs_rel']
+            results['sq_rel'] = depth_metrics['sq_rel']
+            results['delta_1'] = depth_metrics['delta_1']
 
         return results
