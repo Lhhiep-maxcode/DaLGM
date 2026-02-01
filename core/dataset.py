@@ -45,13 +45,17 @@ class ObjaverseDataset(Dataset):
         self.type = type if type in ['train', 'test', 'val'] else 'train'
         
         self.subfolder_depth = []
-        self.subfolder_depth.extend([os.path.join(depth1_path, sub) for sub in os.listdir(depth1_path) 
-                          if os.path.isdir(os.path.join(depth1_path, sub))])
-        self.subfolder_depth.extend([os.path.join(depth2_path, sub) for sub in os.listdir(depth2_path) 
-                          if os.path.isdir(os.path.join(depth2_path, sub))])
-        self.subfolder_depth.extend([os.path.join(depth3_path, sub) for sub in os.listdir(depth3_path) 
-                          if os.path.isdir(os.path.join(depth3_path, sub))])
-        self.subfolder_depth.extend([os.path.join(depth4_path, sub) for sub in os.listdir(depth4_path) 
+        if depth1_path is not None:
+            self.subfolder_depth.extend([os.path.join(depth1_path, sub) for sub in os.listdir(depth1_path) 
+                            if os.path.isdir(os.path.join(depth1_path, sub))])
+        if depth2_path is not None:
+            self.subfolder_depth.extend([os.path.join(depth2_path, sub) for sub in os.listdir(depth2_path) 
+                            if os.path.isdir(os.path.join(depth2_path, sub))])
+        if depth3_path is not None:
+            self.subfolder_depth.extend([os.path.join(depth3_path, sub) for sub in os.listdir(depth3_path) 
+                            if os.path.isdir(os.path.join(depth3_path, sub))])
+        if depth4_path is not None:
+            self.subfolder_depth.extend([os.path.join(depth4_path, sub) for sub in os.listdir(depth4_path) 
                           if os.path.isdir(os.path.join(depth4_path, sub))])
         
         self.items_depth = []
@@ -141,7 +145,10 @@ class ObjaverseDataset(Dataset):
 
             # try:
             image = cv2.imread(image_path, cv2.IMREAD_UNCHANGED)  # shape: [512, 512, 4]
-            depth = torch.from_numpy(np.load(os.path.join(item_depth_path, 'depth', f'{view_id:03d}.npy')))  # shape: [512, 512]
+            try:
+                depth = torch.from_numpy(np.load(os.path.join(item_depth_path, 'depth', f'{view_id:03d}.npz'))['data'])  # shape: [512, 512]
+            except:
+                depth = torch.from_numpy(np.load(os.path.join(item_depth_path, 'depth', f'{view_id:03d}.npy')))  # shape: [512, 512]
             depth = depth.unsqueeze(0)  # [1, H, W]
             
             image = image.astype(np.float32) / 255.0
