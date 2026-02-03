@@ -109,7 +109,11 @@ class LGM(nn.Module):
 
         x = x.permute(0, 1, 3, 4, 2).reshape(B, -1, 14)    # [B, 5, splat_size, splat_size, 14] --> [B, N, 14]
         
-        pos = self.pos_act(x[..., 0:3])     # [B, N, 3]
+        if self.cfg.pixel_align:
+            pos = x[..., 0:3]     # [B, N, 3]
+        else:
+            pos = self.pos_act(x[..., 0:3])     # [B, N, 3]
+
         opacity = self.opacity_act(x[..., 3:4]) # [B, N, 1]
         scale = self.scale_act(x[..., 4:7]) # [B, N, 3]
         rotation = self.rot_act(x[..., 7:11])   # [B, N, 3]
@@ -298,9 +302,9 @@ class LGM(nn.Module):
         # data: output of the dataloader
         # data = {
         #     [C, H, W]
-        #     'input': ...,             (processed input images 5x9x256x256)
-        #     'cam_poses_input': ...,   
-        #     'images_output': ...,     (9x3x512x512)
+        #     'input': ...,             (processed input images [V_in,9,256,256])
+        #     'cam_poses_input': ...,   ([V,4,4])
+        #     'images_output': ...,     ([V_out,3,512,512])
         #     'masks_output': ...,      (.......)
         #     'cam_view_output': ...,          (colmap coordinate)
         #     'cam_view_proj_output': ...,     (colmap coordinate)
@@ -320,12 +324,48 @@ class LGM(nn.Module):
         results = {}
         loss = 0
 
-        images = data['input']  # [B, 5, 9, H, W], input features (not necessarily orthogonal)
+        images = data['input']  # [B, V, 9, H, W], input features (not necessarily orthogonal)
 
         # predicting 3DGS representation
-        gaussians = self.forward_gaussians(images)  # [B, N, 14]
+        gaussians = self.forward_gaussians(images)  # [B, N, 14] = [B, V*h*w, 14]
 
-        results['gaussians'] = gaussians
+        if self.cfg.pixel_align:
+            rays_d = []
+            rays_o = []
+            B, V, _, _ = data['cam_poses_input'].shape
+            cam_poses_input = data['cam_poses_input'].reshape(-1, 4, 4)  # [B, V, 4, 4] -> [B*V, 4, 4]
+            for i in range(cam_poses_input.shape[0]):
+                ro, rd = get_rays(cam_poses_input[i], self.cfg.input_size, self.cfg.input_size, self.cfg.fovy) # [h, w, 3]
+                rays_d.append(rd)
+                rays_o.append(ro)
+            rays_d = torch.stack(rays_d, dim=0)  # [B*V, h, w, 3]
+            rays_o = torch.stack(rays_o, dim=0)  # [B*V, h, w, 3]
+            rays_d = rays_d.view(B, V, self.cfg.input_size, self.cfg.input_size, 3) # [B, V, h, w, 3]
+            rays_o = rays_o.view(B, V, self.cfg.input_size, self.cfg.input_size, 3) # [B, V, h, w, 3]
+
+            pos = gaussians[..., 0:3]   # [B, V*h*w, 3]
+            dist = pos.mean(dim=-1, keepdim=True).sigmoid() * self.cfg.max_distance   # [B, V*h*w, 1]
+            pos = dist * rays_d.view(B, -1, 3) + rays_o.view(B, -1, 3)  # [B, V*h*w, 3]
+
+            # Convert from OpenGL to COLMAP convention: flip Y and Z
+            pos[..., 1:3] *= -1  # [B, V*h*w, 3] (COLMAP space)
+
+            gaussians = torch.cat([pos, gaussians[..., 3:]], dim=-1)  # [B, V*h*w, 14]
+
+            # get pixel-aligned depth
+            cam_poses_colmap = data['cam_poses_input'].clone()
+            cam_poses_colmap[:, :, :3, 1:3] *= -1  # Convert to COLMAP
+            pos = pos.view(B, V, self.cfg.input_size * self.cfg.input_size, 3)  # [B, V, h*w, 3]
+            input_w2c = torch.inverse(cam_poses_colmap)  # [B, V, 4, 4]
+            pos_cam = pos @ input_w2c[:, :, :3, :3].transpose(-1, -2).contiguous() + input_w2c[:, :, :3, 3:4].transpose(-1, -2).contiguous()  # [B, V, h*w, 3]
+            depth = pos_cam[..., 2]  # [B, V, h*w]
+            disp_pred = 1.0 / depth.clamp(min=1e-3)  # [B, V, h*w]
+            disp_median = torch.median(disp_pred, dim=-1, keepdim=True)[0]  # [B, V, 1]
+            disp_var = (disp_pred - disp_median).abs().mean(dim=-1, keepdim=True)  # [B, V, 1]
+            disp_norm = (disp_pred - disp_median) / (disp_var + 1e-6)  # [B, V, h*w]
+            disp_norm = disp_norm.view(B, V, 1, self.cfg.input_size, self.cfg.input_size)  # [B, V, 1, h, w]
+
+        results['gaussians'] = gaussians    # [B, V*h*w, 14]
 
         # always use white background
         bg_color = torch.ones(3, dtype=torch.float32, device=gaussians.device)
@@ -335,15 +375,18 @@ class LGM(nn.Module):
         pred_images = rendered_results['image']  # [B, V, C, output_size, output_size]
         pred_alphas = rendered_results['alpha']  # [B, V, 1, output_size, output_size]
         pred_images = pred_images * pred_alphas + (1 - pred_alphas) * bg_color.view(1, 1, 3, 1, 1)
-        pred_depths = rendered_results['depth']  # [B, V, 1, output_size, output_size]
+        if self.cfg.pixel_align:
+            pred_depths = depth.view(B, V, 1, self.cfg.input_size, self.cfg.input_size)
+        else:
+            pred_depths = rendered_results['depth']  # [B, V, 1, output_size, output_size]
 
         results['images_pred'] = pred_images
         results['alphas_pred'] = pred_alphas
         results['depths_pred'] = pred_depths
-
+        
         gt_images = data['images_output']   # [B, V, 3, output_size, output_size], ground-truth novel views
         gt_masks = data['masks_output']     # [B, V, 1, output_size, output_size], ground-truth masks
-        gt_depths = data['depths_output']   # [B, V, 1, output_size, output_size], ground-truth depths
+        gt_depths = data['depths_input']   # [B, V, 1, output_size, output_size], ground-truth depths
 
         gt_images = gt_images * gt_masks + (1 - gt_masks) * bg_color.view(1, 1, 3, 1, 1)
 
