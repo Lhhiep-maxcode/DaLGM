@@ -30,3 +30,5 @@ PyMCubes
 nerfacc
 pymeshlab
 ninja
+wandb
+opencv-python
