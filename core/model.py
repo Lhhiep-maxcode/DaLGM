@@ -126,7 +126,7 @@ class LGM(nn.Module):
         self,
         depth_3dgs,
         depth_mesh,
-        alpha_3dgs,
+        alpha_3dgs=None,
         alpha_mesh=None,
         loss_type="l1",
         min_valid=10,
@@ -143,8 +143,7 @@ class LGM(nn.Module):
         for b in range(B):
             for v in range(V):
                 # valid mask per view
-                mask = alpha_3dgs[b, v] > 0.1
-                mask = mask & (depth_mesh[b, v] > 0.01)
+                mask = alpha_3dgs[b, v] > 0.1 if alpha_3dgs is not None else torch.ones_like(depth_3dgs[b, v], dtype=torch.bool)
                 if alpha_mesh is not None:
                     mask = mask & (alpha_mesh[b, v] > 0.01)
 
@@ -156,12 +155,14 @@ class LGM(nn.Module):
 
                 if loss_type in ["l1", "l2", "huber", "berhu"]:
                     # per-view min–max scaling
-                    d3_min, d3_max = d3.min(), d3.max()
-                    dm_min, dm_max = dm.min(), dm.max()
+                    # d3_min, d3_max = d3.min(), d3.max()
+                    # dm_min, dm_max = dm.min(), dm.max()
 
-                    d3s = (d3 - d3_min) / (d3_max - d3_min + 1e-8)
-                    dms = (dm - dm_min) / (dm_max - dm_min + 1e-8)
-
+                    # d3s = (d3 - d3_min) / (d3_max - d3_min + 1e-8)
+                    # dms = (dm - dm_min) / (dm_max - dm_min + 1e-8)
+                    
+                    d3s = d3
+                    dms = dm
                     diff = d3s - dms
 
                     if loss_type == "l1":
@@ -195,7 +196,7 @@ class LGM(nn.Module):
 
         return torch.stack(losses).mean()
 
-    def depth_gradient_loss(self, depth_3dgs, depth_mesh, alpha_3dgs, alpha_mesh=None, min_valid=10):
+    def depth_gradient_loss(self, depth_3dgs, depth_mesh, alpha_3dgs=None, alpha_mesh=None, min_valid=10):
         """
         depth_* : [B, V, 1, H, W]
         alpha_* : [B, V, 1, H, W]
@@ -211,7 +212,7 @@ class LGM(nn.Module):
         for b in range(B):
             for v in range(V):
                 # Valid mask (crop by 1 on each side to match conv output size)
-                mask_3dgs = alpha_3dgs[b, v, 0, 1:-1, 1:-1] > 0.1
+                mask_3dgs = alpha_3dgs[b, v, 0, 1:-1, 1:-1] > 0.1 if alpha_3dgs is not None else torch.ones_like(depth_3dgs[b, v, 0, 1:-1, 1:-1], dtype=torch.bool)
                 mask_mesh = depth_mesh[b, v, 0, 1:-1, 1:-1] > 0
                 if alpha_mesh is not None:
                     mask_mesh = mask_mesh & (alpha_mesh[b, v, 0, 1:-1, 1:-1] > 0.01)
@@ -328,11 +329,11 @@ class LGM(nn.Module):
 
         # predicting 3DGS representation
         gaussians = self.forward_gaussians(images)  # [B, N, 14] = [B, V*h*w, 14]
+        B, V, _, _ = data['cam_poses_input'].shape
 
         if self.cfg.pixel_align:
             rays_d = []
             rays_o = []
-            B, V, _, _ = data['cam_poses_input'].shape
             cam_poses_input = data['cam_poses_input'].reshape(-1, 4, 4)  # [B, V, 4, 4] -> [B*V, 4, 4]
             for i in range(cam_poses_input.shape[0]):
                 ro, rd = get_rays(cam_poses_input[i], self.cfg.input_size, self.cfg.input_size, self.cfg.fovy) # [h, w, 3]
@@ -348,7 +349,7 @@ class LGM(nn.Module):
             pos = dist * rays_d.view(B, -1, 3) + rays_o.view(B, -1, 3)  # [B, V*h*w, 3]
 
             # Convert from OpenGL to COLMAP convention: flip Y and Z
-            pos[..., 1:3] *= -1  # [B, V*h*w, 3] (COLMAP space)
+            # pos[..., 1:3] *= -1  # [B, V*h*w, 3] (COLMAP space)
 
             gaussians = torch.cat([pos, gaussians[..., 3:]], dim=-1)  # [B, V*h*w, 14]
 
@@ -362,8 +363,8 @@ class LGM(nn.Module):
             disp_pred = 1.0 / depth.clamp(min=1e-3)  # [B, V, h*w]
             disp_median = torch.median(disp_pred, dim=-1, keepdim=True)[0]  # [B, V, 1]
             disp_var = (disp_pred - disp_median).abs().mean(dim=-1, keepdim=True)  # [B, V, 1]
-            disp_norm = (disp_pred - disp_median) / (disp_var + 1e-6)  # [B, V, h*w]
-            disp_norm = disp_norm.view(B, V, 1, self.cfg.input_size, self.cfg.input_size)  # [B, V, 1, h, w]
+            disp_pred = (disp_pred - disp_median) / (disp_var + 1e-6)  # [B, V, h*w]
+            disp_pred = disp_pred.view(B, V, 1, self.cfg.input_size, self.cfg.input_size)  # [B, V, 1, h, w]
 
         results['gaussians'] = gaussians    # [B, V*h*w, 14]
 
@@ -386,7 +387,8 @@ class LGM(nn.Module):
         
         gt_images = data['images_output']   # [B, V, 3, output_size, output_size], ground-truth novel views
         gt_masks = data['masks_output']     # [B, V, 1, output_size, output_size], ground-truth masks
-        gt_depths = data['depths_input']   # [B, V, 1, output_size, output_size], ground-truth depths
+        gt_depths = data['depths_input']   # [B, V, 1, input_size, input_size], ground-truth depths
+        gt_masks_in = data['mask_input']   # [B, V, 1, input_size, input_size], ground-truth masks for input views
 
         gt_images = gt_images * gt_masks + (1 - gt_masks) * bg_color.view(1, 1, 3, 1, 1)
 
@@ -401,22 +403,34 @@ class LGM(nn.Module):
             ).mean()
             loss = loss + lambda_lpips * (loss_lpips_all) # + lambda_lpips * (lambda_top - 1) * loss_lpips_top
 
-        if lambda_depth > 0:
+        if lambda_depth > 0 and self.cfg.pixel_align:
+            # Flatten spatial dimensions for consistent normalization
+            disp_gt = 1.0 / gt_depths.clamp(min=1e-3)  # [B, V, 1, H, W]
+            disp_gt = disp_gt.view(B, V, -1)  # [B, V, H*W]
+            disp_median_gt = torch.median(disp_gt, dim=-1, keepdim=True)[0]  # [B, V, 1]
+            disp_var_gt = (disp_gt - disp_median_gt).abs().mean(dim=-1, keepdim=True)  # [B, V, 1]
+            disp_gt = (disp_gt - disp_median_gt) / (disp_var_gt + 1e-6)  # [B, V, H*W]
+            disp_gt = disp_gt.view(B, V, 1, self.cfg.input_size, self.cfg.input_size)  # [B, V, 1, h, w]
+            
             loss_depth_all = self.depth_loss(
-                pred_depths,
-                gt_depths,
-                pred_alphas,
-                gt_masks,
+                disp_pred,
+                disp_gt,
+                None,
+                gt_masks_in,
                 loss_type=depth_loss_type,
             )
             loss = loss + lambda_depth * (loss_depth_all)
         
-        if lambda_grad > 0:
+        if lambda_grad > 0 and self.cfg.pixel_align:
+            pred_depths_for_grad = depth.view(B, V, 1, self.cfg.input_size, self.cfg.input_size)
+            # Resize alpha masks to match depth size for gradient loss
+            pred_alphas_grad = None
+            gt_masks_grad = gt_masks_in
             loss_grad_all = self.depth_gradient_loss(
-                pred_depths,
+                pred_depths_for_grad,
                 gt_depths,
-                pred_alphas,
-                gt_masks,
+                pred_alphas_grad,
+                gt_masks_grad,
             )
             loss = loss + lambda_grad * (loss_grad_all)
         

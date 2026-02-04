@@ -194,6 +194,7 @@ class ObjaverseDataset(Dataset):
         images_input = F.interpolate(images[:self.cfg.num_views_input].clone(), size=(self.cfg.input_size, self.cfg.input_size), mode='bilinear', align_corners=False)   # [V, C, H, W]
         cam_poses_input = cam_poses[:self.cfg.num_views_input].clone()
         depths_input = F.interpolate(depths[:self.cfg.num_views_input].clone(), size=(self.cfg.input_size, self.cfg.input_size), mode='nearest')   # [V, 1, H, W]
+        masks_input = F.interpolate(masks[:self.cfg.num_views_input].clone().unsqueeze(1), size=(self.cfg.input_size, self.cfg.input_size), mode='bilinear', align_corners=False).squeeze(1)   # [V, 1, H, W]
         
         # data augmentation
         if self.type == 'train':
@@ -217,11 +218,12 @@ class ObjaverseDataset(Dataset):
         results['input'] = final_input
         results['cam_poses_input'] = cam_poses_input
         results['depth_input'] = depths_input
+        results['mask_input'] = masks_input
 
         # resize ground-truth images, still in range [0, 1]
         if not self.cfg.self_supervised:
-            results['images_output'] = F.interpolate(images[:self.cfg.num_views_input].clone(), (self.cfg.output_size, self.cfg.output_size), mode='bilinear', align_corners=False)
-            results['masks_output'] = F.interpolate(masks[:self.cfg.num_views_input].clone().unsqueeze(1), (self.cfg.output_size, self.cfg.output_size), mode='bilinear', align_corners=False)
+            results['images_output'] = F.interpolate(images[self.cfg.num_views_input:].clone(), (self.cfg.output_size, self.cfg.output_size), mode='bilinear', align_corners=False)
+            results['masks_output'] = F.interpolate(masks[self.cfg.num_views_input:].clone().unsqueeze(1), (self.cfg.output_size, self.cfg.output_size), mode='bilinear', align_corners=False)
             # results['depths_output'] = F.interpolate(depths[self.cfg.num_views_input:].clone(), (self.cfg.output_size, self.cfg.output_size), mode='nearest')
         else:
             results['images_output'] = F.interpolate(images[:self.cfg.num_views_input].clone(), (self.cfg.output_size, self.cfg.output_size), mode='bilinear', align_corners=False)
