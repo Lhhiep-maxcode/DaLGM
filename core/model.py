@@ -388,7 +388,7 @@ class LGM(nn.Module):
         gt_images = data['images_output']   # [B, V, 3, output_size, output_size], ground-truth novel views
         gt_masks = data['masks_output']     # [B, V, 1, output_size, output_size], ground-truth masks
         gt_depths = data['depths_input']   # [B, V, 1, splat_size, splat_size], ground-truth depths
-        gt_masks_in = data['mask_input']   # [B, V, 1, splat_size, splat_size], ground-truth masks for input views
+        gt_masks_in = data['masks_input']   # [B, V, 1, splat_size, splat_size], ground-truth masks for input views
 
         gt_images = gt_images * gt_masks + (1 - gt_masks) * bg_color.view(1, 1, 3, 1, 1)
 

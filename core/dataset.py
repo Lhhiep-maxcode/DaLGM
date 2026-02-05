@@ -217,8 +217,8 @@ class ObjaverseDataset(Dataset):
 
         results['input'] = final_input
         results['cam_poses_input'] = cam_poses_input
-        results['depth_input'] = depths_input
-        results['mask_input'] = masks_input
+        results['depths_input'] = depths_input
+        results['masks_input'] = masks_input
 
         # resize ground-truth images, still in range [0, 1]
         if not self.cfg.self_supervised:
