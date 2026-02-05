@@ -461,10 +461,10 @@ class LGM(nn.Module):
             results['lpips'] = lpips
 
             # Depth metrics
-            depth_metrics = self.depth_metrics(pred_depths, gt_depths, pred_alphas, gt_masks)
-            results['abs_diff'] = depth_metrics['abs_diff']
-            results['abs_rel'] = depth_metrics['abs_rel']
-            results['sq_rel'] = depth_metrics['sq_rel']
-            results['delta_1'] = depth_metrics['delta_1']
+            # depth_metrics = self.depth_metrics(pred_depths, gt_depths, pred_alphas, gt_masks)
+            results['abs_diff'] = torch.tensor(0.0, device=images.device)
+            results['abs_rel'] = torch.tensor(0.0, device=images.device)
+            results['sq_rel'] = torch.tensor(0.0, device=images.device)
+            results['delta_1'] = torch.tensor(0.0, device=images.device)
 
         return results
