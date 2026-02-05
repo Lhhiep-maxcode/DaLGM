@@ -84,7 +84,7 @@ class LGM(nn.Module):
 
         rays_embeddings = []
         for i in range(cam_poses.shape[0]):
-            rays_o, rays_d = get_rays(cam_poses[i], self.cfg.input_size, self.cfg.input_size, self.cfg.fovy) # [h, w, 3]
+            rays_o, rays_d = get_rays(cam_poses[i], self.cfg.splat_size, self.cfg.splat_size, self.cfg.fovy) # [h, w, 3]
             rays_plucker = torch.cat([torch.cross(rays_o, rays_d, dim=-1), rays_d], dim=-1) # [h, w, 6]
             rays_embeddings.append(rays_plucker)
 
@@ -336,13 +336,13 @@ class LGM(nn.Module):
             rays_o = []
             cam_poses_input = data['cam_poses_input'].reshape(-1, 4, 4)  # [B, V, 4, 4] -> [B*V, 4, 4]
             for i in range(cam_poses_input.shape[0]):
-                ro, rd = get_rays(cam_poses_input[i], self.cfg.input_size, self.cfg.input_size, self.cfg.fovy) # [h, w, 3]
+                ro, rd = get_rays(cam_poses_input[i], self.cfg.splat_size, self.cfg.splat_size, self.cfg.fovy) # [h, w, 3]
                 rays_d.append(rd)
                 rays_o.append(ro)
             rays_d = torch.stack(rays_d, dim=0)  # [B*V, h, w, 3]
             rays_o = torch.stack(rays_o, dim=0)  # [B*V, h, w, 3]
-            rays_d = rays_d.view(B, V, self.cfg.input_size, self.cfg.input_size, 3) # [B, V, h, w, 3]
-            rays_o = rays_o.view(B, V, self.cfg.input_size, self.cfg.input_size, 3) # [B, V, h, w, 3]
+            rays_d = rays_d.view(B, V, self.cfg.splat_size, self.cfg.splat_size, 3) # [B, V, h, w, 3]
+            rays_o = rays_o.view(B, V, self.cfg.splat_size, self.cfg.splat_size, 3) # [B, V, h, w, 3]
 
             pos = gaussians[..., 0:3]   # [B, V*h*w, 3]
             dist = pos.mean(dim=-1, keepdim=True).sigmoid() * self.cfg.max_distance   # [B, V*h*w, 1]
@@ -356,7 +356,7 @@ class LGM(nn.Module):
             # get pixel-aligned depth
             cam_poses_colmap = data['cam_poses_input'].clone()
             cam_poses_colmap[:, :, :3, 1:3] *= -1  # Convert to COLMAP
-            pos = pos.view(B, V, self.cfg.input_size * self.cfg.input_size, 3)  # [B, V, h*w, 3]
+            pos = pos.view(B, V, self.cfg.splat_size * self.cfg.splat_size, 3)  # [B, V, h*w, 3]
             input_w2c = torch.inverse(cam_poses_colmap)  # [B, V, 4, 4]
             pos_cam = pos @ input_w2c[:, :, :3, :3].transpose(-1, -2).contiguous() + input_w2c[:, :, :3, 3:4].transpose(-1, -2).contiguous()  # [B, V, h*w, 3]
             depth = pos_cam[..., 2]  # [B, V, h*w]
@@ -364,7 +364,7 @@ class LGM(nn.Module):
             disp_median = torch.median(disp_pred, dim=-1, keepdim=True)[0]  # [B, V, 1]
             disp_var = (disp_pred - disp_median).abs().mean(dim=-1, keepdim=True)  # [B, V, 1]
             disp_pred = (disp_pred - disp_median) / (disp_var + 1e-6)  # [B, V, h*w]
-            disp_pred = disp_pred.view(B, V, 1, self.cfg.input_size, self.cfg.input_size)  # [B, V, 1, h, w]
+            disp_pred = disp_pred.view(B, V, 1, self.cfg.splat_size, self.cfg.splat_size)  # [B, V, 1, h, w]
 
         results['gaussians'] = gaussians    # [B, V*h*w, 14]
 
@@ -377,7 +377,7 @@ class LGM(nn.Module):
         pred_alphas = rendered_results['alpha']  # [B, V, 1, output_size, output_size]
         pred_images = pred_images * pred_alphas + (1 - pred_alphas) * bg_color.view(1, 1, 3, 1, 1)
         if self.cfg.pixel_align:
-            pred_depths = depth.view(B, V, 1, self.cfg.input_size, self.cfg.input_size)
+            pred_depths = depth.view(B, V, 1, self.cfg.splat_size, self.cfg.splat_size)
         else:
             pred_depths = rendered_results['depth']  # [B, V, 1, output_size, output_size]
 
@@ -387,8 +387,8 @@ class LGM(nn.Module):
         
         gt_images = data['images_output']   # [B, V, 3, output_size, output_size], ground-truth novel views
         gt_masks = data['masks_output']     # [B, V, 1, output_size, output_size], ground-truth masks
-        gt_depths = data['depths_input']   # [B, V, 1, input_size, input_size], ground-truth depths
-        gt_masks_in = data['mask_input']   # [B, V, 1, input_size, input_size], ground-truth masks for input views
+        gt_depths = data['depths_input']   # [B, V, 1, splat_size, splat_size], ground-truth depths
+        gt_masks_in = data['mask_input']   # [B, V, 1, splat_size, splat_size], ground-truth masks for input views
 
         gt_images = gt_images * gt_masks + (1 - gt_masks) * bg_color.view(1, 1, 3, 1, 1)
 
@@ -410,7 +410,7 @@ class LGM(nn.Module):
             disp_median_gt = torch.median(disp_gt, dim=-1, keepdim=True)[0]  # [B, V, 1]
             disp_var_gt = (disp_gt - disp_median_gt).abs().mean(dim=-1, keepdim=True)  # [B, V, 1]
             disp_gt = (disp_gt - disp_median_gt) / (disp_var_gt + 1e-6)  # [B, V, H*W]
-            disp_gt = disp_gt.view(B, V, 1, self.cfg.input_size, self.cfg.input_size)  # [B, V, 1, h, w]
+            disp_gt = disp_gt.view(B, V, 1, self.cfg.splat_size, self.cfg.splat_size)  # [B, V, 1, h, w]
             
             loss_depth_all = self.depth_loss(
                 disp_pred,
@@ -422,7 +422,7 @@ class LGM(nn.Module):
             loss = loss + lambda_depth * (loss_depth_all)
         
         if lambda_grad > 0 and self.cfg.pixel_align:
-            pred_depths_for_grad = depth.view(B, V, 1, self.cfg.input_size, self.cfg.input_size)
+            pred_depths_for_grad = depth.view(B, V, 1, self.cfg.splat_size, self.cfg.splat_size)
             # Resize alpha masks to match depth size for gradient loss
             pred_alphas_grad = None
             gt_masks_grad = gt_masks_in
