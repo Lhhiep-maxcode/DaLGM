@@ -255,7 +255,7 @@ def main():
                         gt_mask = gt_mask.transpose(0, 3, 1, 4, 2).reshape(-1, gt_mask.shape[1] * gt_mask.shape[3], 1)    # [B * output_size, V * output_size, 3]
                         kiui.write_image(f'{cfg.workspace}/{epoch}_{i}_train_gt_mask.jpg', gt_mask)
 
-                        gt_depth = data['depth_input'].detach().cpu().numpy() # [B, V, 3, output_size, output_size]
+                        gt_depth = data['depths_input'].detach().cpu().numpy() # [B, V, 3, output_size, output_size]
                         gt_depth = gt_depth.transpose(0, 3, 1, 4, 2).reshape(-1, gt_depth.shape[1] * gt_depth.shape[3], 1)  # [B * output_size, V * output_size, 3]
                         kiui.write_image(f'{cfg.workspace}/{epoch}_{i}_train_gt_depth.jpg', gt_depth)
 
