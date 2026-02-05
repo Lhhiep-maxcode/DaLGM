@@ -17,13 +17,9 @@ pip install torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0 \
     --index-url $TORCH_INDEX_URL
 
 echo "[2/9] Clone LGM-from-sratch repository"
-if [ ! -d "LGM-from-sratch" ]; then
-    git clone --branch $REPO_BRANCH $REPO_URL
-else
-    echo "Repository already exists, skipping clone"
-fi
 
-cd LGM-from-sratch
+echo "Repository already exists, skipping clone"
+
 
 echo "[3/9] Install xFormers"
 pip install xformers --index-url $TORCH_INDEX_URL
@@ -55,8 +51,20 @@ else
 fi
 
 cd ..
+cd ..
 
-echo "[9/9] Verify installation"
+echo "[9/9] Download Data"
+pip install kaggle
+
+echo "Download depth data from Kaggle"
+mkdir 10k-dataset-9-views
+kaggle datasets download laihoanghiep/10k-dataset-9-views-depth
+kaggle datasets download laihoanghiep/10k-dataset-9-views
+
+unzip 10k-dataset-9-views-depth.zip -d 10k-dataset-9-views
+unzip 10k-dataset-9-views.zip -d 10k-dataset-9-views
+
+
 python - <<EOF
 import torch
 print("Torch version:", torch.__version__)
