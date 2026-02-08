@@ -31,6 +31,8 @@ class LGM(nn.Module):
             up_attention=self.cfg.up_attention,
         )
 
+        # x2 upsample
+        self.upsample = nn.Conv2d(14, 14, kernel_size=3, stride=1, padding=1)
         # last conv
         self.conv = nn.Conv2d(14, 14, kernel_size=1)
 
@@ -103,7 +105,9 @@ class LGM(nn.Module):
         images = images.view(B*V, C, H, W)
 
         x = self.unet(images)   # [B*5, 14, H, W]
-        x = self.conv(x)        # [B*5, 14, H, W]
+        x = F.interpolate(x, scale_factor=2.0, mode='nearest')  # [B*5, 14, 2*H, 2*W]
+        x = self.upsample(x)    # [B*5, 14, 2*H, 2*W]
+        x = self.conv(x)        # [B*5, 14, 2*H, 2*W]
 
         x = x.reshape(B, self.cfg.num_views_input, 14, self.cfg.splat_size, self.cfg.splat_size)
 
