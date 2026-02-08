@@ -193,21 +193,22 @@ class ObjaverseDataset(Dataset):
         # resize input images
         images_input = F.interpolate(images[:self.cfg.num_views_input].clone(), size=(self.cfg.input_size, self.cfg.input_size), mode='bilinear', align_corners=False)   # [V, C, H, W]
         cam_poses_input = cam_poses[:self.cfg.num_views_input].clone()
-        depths_input = F.interpolate(depths[:self.cfg.num_views_input].clone(), size=(self.cfg.input_size, self.cfg.input_size), mode='nearest')   # [V, 1, H, W]
-        masks_input = F.interpolate(masks[:self.cfg.num_views_input].clone().unsqueeze(1), size=(self.cfg.input_size, self.cfg.input_size), mode='bilinear', align_corners=False).squeeze(1)   # [V, 1, H, W]
+        depths_input = F.interpolate(depths[:self.cfg.num_views_input].clone(), size=(self.cfg.splat_size, self.cfg.splat_size), mode='nearest')   # [V, 1, H, W]
+        masks_input = F.interpolate(masks[:self.cfg.num_views_input].clone().unsqueeze(1), size=(self.cfg.splat_size, self.cfg.splat_size), mode='bilinear', align_corners=False).squeeze(1)   # [V, 1, H, W]
         
         # data augmentation
-        if self.type == 'train':
-            # if random.random() < self.cfg.prob_grid_distortion:
-            #     images_input[1:] = grid_distortion(images_input[1:])
-            if random.random() < self.cfg.prob_cam_jitter:
-                cam_poses_input[1:] = orbit_camera_jitter(cam_poses_input[1:])
+        # if self.type == 'train':
+        #     # if random.random() < self.cfg.prob_grid_distortion:
+        #     #     images_input[1:] = grid_distortion(images_input[1:])
+        #     if random.random() < self.cfg.prob_cam_jitter:
+        #         cam_poses_input[1:] = orbit_camera_jitter(cam_poses_input[1:])
 
         images_input = TF.normalize(images_input, IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD)
 
         # build rays for input views
         rays_embeddings = []
         for i in range(self.cfg.num_views_input):
+            # get rays_o, rays_d in world space
             rays_o, rays_d = get_rays(cam_poses_input[i], self.cfg.input_size, self.cfg.input_size, self.cfg.fovy) # [h, w, 3]
             rays_plucker = torch.cat([torch.cross(rays_o, rays_d, dim=-1), rays_d], dim=-1) # [h, w, 6]
             rays_embeddings.append(rays_plucker)
@@ -225,11 +226,12 @@ class ObjaverseDataset(Dataset):
             results['images_output'] = F.interpolate(images[self.cfg.num_views_input:].clone(), (self.cfg.output_size, self.cfg.output_size), mode='bilinear', align_corners=False)
             results['masks_output'] = F.interpolate(masks[self.cfg.num_views_input:].clone().unsqueeze(1), (self.cfg.output_size, self.cfg.output_size), mode='bilinear', align_corners=False)
             # results['depths_output'] = F.interpolate(depths[self.cfg.num_views_input:].clone(), (self.cfg.output_size, self.cfg.output_size), mode='nearest')
+            cam_poses = cam_poses[self.cfg.num_views_input:].clone()
         else:
             results['images_output'] = F.interpolate(images[:self.cfg.num_views_input].clone(), (self.cfg.output_size, self.cfg.output_size), mode='bilinear', align_corners=False)
             results['masks_output'] = F.interpolate(masks[:self.cfg.num_views_input].clone().unsqueeze(1), (self.cfg.output_size, self.cfg.output_size), mode='bilinear', align_corners=False)
+            cam_poses = cam_poses[:self.cfg.num_views_input].clone()
 
-        cam_poses = cam_poses[self.cfg.num_views_input:].clone()
         # opengl to colmap camera for gaussian renderer
         cam_poses[:, :3, 1:3] *= -1 # invert up & forward direction
 

@@ -9,7 +9,7 @@ class Options:
     input_size: int = 160
     pixel_align: bool = False
     self_supervised: bool = False
-    max_distance: float = 500.0
+    max_distance: float = 2.5
     # Unet definition
     down_channels: Tuple[int, ...] = (64, 128, 256, 512, 1024, 1024)
     down_attention: Tuple[bool, ...] = (False, False, False, True, True, True)

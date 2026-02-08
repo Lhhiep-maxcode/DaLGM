@@ -11,6 +11,7 @@ import torch
 import tyro
 import kiui
 import wandb
+import numpy as np
 
 def transformer_lr_lambda(step, d_model=512, warmup_steps=4000, peak_lr=1e-4):
     """
@@ -268,10 +269,14 @@ def main():
                         kiui.write_image(f'{cfg.workspace}/{epoch}_{i}_train_pred_mask.jpg', pred_mask)
 
                         pred_depth = out['depths_pred'].detach().cpu().numpy() # [B, V, 3, output_size, output_size]
+                        pred_depth = pred_depth / np.max(pred_depth)  # normalize to [0, 1] for better visualization
                         pred_depth = pred_depth.transpose(0, 3, 1, 4, 2).reshape(-1, pred_depth.shape[1] * pred_depth.shape[3], 1)  # [B * output_size, V * output_size, 3]
                         kiui.write_image(f'{cfg.workspace}/{epoch}_{i}_train_pred_depth.jpg', pred_depth)
 
-
+                        pred_depth_rasterized = out['depths_pred_rasterized'].detach().cpu().numpy() # [B, V, 3, output_size, output_size]
+                        pred_depth_rasterized = pred_depth_rasterized / np.max(pred_depth_rasterized)  # normalize to [0, 1] for better visualization
+                        pred_depth_rasterized = pred_depth_rasterized.transpose(0, 3, 1, 4, 2).reshape(-1, pred_depth_rasterized.shape[1] * pred_depth_rasterized.shape[3], 1)  # [B * output_size, V * output_size, 3]
+                        kiui.write_image(f'{cfg.workspace}/{epoch}_{i}_train_pred_depth_rasterized.jpg', pred_depth_rasterized)
         
             del out, loss, psnr, ssim, lpips
         if accelerator.is_main_process:

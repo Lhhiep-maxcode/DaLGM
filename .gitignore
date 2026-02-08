@@ -3,3 +3,11 @@ __pycache__/
 *.py[cod]
 *$py.class
 .vscode/
+*.png
+*.jpg
+*.jpeg
+wandb/
+*.log
+*.safetensors
+*.ckpt
+workspace/

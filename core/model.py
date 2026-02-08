@@ -105,7 +105,7 @@ class LGM(nn.Module):
         x = self.unet(images)   # [B*5, 14, H, W]
         x = self.conv(x)        # [B*5, 14, H, W]
 
-        x = x.reshape(B, 9, 14, self.cfg.splat_size, self.cfg.splat_size)
+        x = x.reshape(B, self.cfg.num_views_input, 14, self.cfg.splat_size, self.cfg.splat_size)
 
         x = x.permute(0, 1, 3, 4, 2).reshape(B, -1, 14)    # [B, 5, splat_size, splat_size, 14] --> [B, N, 14]
         
@@ -336,6 +336,7 @@ class LGM(nn.Module):
             rays_o = []
             cam_poses_input = data['cam_poses_input'].reshape(-1, 4, 4)  # [B, V, 4, 4] -> [B*V, 4, 4]
             for i in range(cam_poses_input.shape[0]):
+                # get rays in world space
                 ro, rd = get_rays(cam_poses_input[i], self.cfg.splat_size, self.cfg.splat_size, self.cfg.fovy) # [h, w, 3]
                 rays_d.append(rd)
                 rays_o.append(ro)
@@ -348,17 +349,16 @@ class LGM(nn.Module):
             dist = pos.mean(dim=-1, keepdim=True).sigmoid() * self.cfg.max_distance   # [B, V*h*w, 1]
             pos = dist * rays_d.view(B, -1, 3) + rays_o.view(B, -1, 3)  # [B, V*h*w, 3]
 
-            # Convert from OpenGL to COLMAP convention: flip Y and Z
-            # pos[..., 1:3] *= -1  # [B, V*h*w, 3] (COLMAP space)
-
             gaussians = torch.cat([pos, gaussians[..., 3:]], dim=-1)  # [B, V*h*w, 14]
 
             # get pixel-aligned depth
-            cam_poses_colmap = data['cam_poses_input'].clone()
-            cam_poses_colmap[:, :, :3, 1:3] *= -1  # Convert to COLMAP
+            cam_poses_colmap = data['cam_poses_input'].clone()  # OpenGL cam-to-world
+            cam_poses_colmap[:, :, :3, 1:3] *= -1  # Convert to COLMAP cam-to-world
             pos = pos.view(B, V, self.cfg.splat_size * self.cfg.splat_size, 3)  # [B, V, h*w, 3]
-            input_w2c = torch.inverse(cam_poses_colmap)  # [B, V, 4, 4]
-            pos_cam = pos @ input_w2c[:, :, :3, :3].transpose(-1, -2).contiguous() + input_w2c[:, :, :3, 3:4].transpose(-1, -2).contiguous()  # [B, V, h*w, 3]
+            input_w2c = torch.inverse(cam_poses_colmap)  # [B, V, 4, 4]: world-to-COLMAP cam
+            # [B, V, h*w, 3]: convert pos of 3DGS from world coordinate to COLMAP cam coordinate
+            pos_cam = pos @ input_w2c[:, :, :3, :3].transpose(-1, -2).contiguous() + input_w2c[:, :, :3, 3:4].transpose(-1, -2).contiguous()
+            # get z-axis as depth value
             depth = pos_cam[..., 2]  # [B, V, h*w]
             disp_pred = 1.0 / depth.clamp(min=1e-3)  # [B, V, h*w]
             disp_median = torch.median(disp_pred, dim=-1, keepdim=True)[0]  # [B, V, 1]
@@ -384,6 +384,7 @@ class LGM(nn.Module):
         results['images_pred'] = pred_images
         results['alphas_pred'] = pred_alphas
         results['depths_pred'] = pred_depths
+        results['depths_pred_rasterized'] = rendered_results['depth']
         
         gt_images = data['images_output']   # [B, V, 3, output_size, output_size], ground-truth novel views
         gt_masks = data['masks_output']     # [B, V, 1, output_size, output_size], ground-truth masks
