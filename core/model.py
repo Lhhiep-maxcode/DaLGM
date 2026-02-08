@@ -360,11 +360,11 @@ class LGM(nn.Module):
             pos_cam = pos @ input_w2c[:, :, :3, :3].transpose(-1, -2).contiguous() + input_w2c[:, :, :3, 3:4].transpose(-1, -2).contiguous()
             # get z-axis as depth value
             depth = pos_cam[..., 2]  # [B, V, h*w]
-            disp_pred = 1.0 / depth.clamp(min=1e-3)  # [B, V, h*w]
-            disp_median = torch.median(disp_pred, dim=-1, keepdim=True)[0]  # [B, V, 1]
-            disp_var = (disp_pred - disp_median).abs().mean(dim=-1, keepdim=True)  # [B, V, 1]
-            disp_pred = (disp_pred - disp_median) / (disp_var + 1e-6)  # [B, V, h*w]
-            disp_pred = disp_pred.view(B, V, 1, self.cfg.splat_size, self.cfg.splat_size)  # [B, V, 1, h, w]
+            # disp_pred = 1.0 / depth.clamp(min=1e-3)  # [B, V, h*w]
+            # disp_median = torch.median(disp_pred, dim=-1, keepdim=True)[0]  # [B, V, 1]
+            # disp_var = (disp_pred - disp_median).abs().mean(dim=-1, keepdim=True)  # [B, V, 1]
+            # disp_pred = (disp_pred - disp_median) / (disp_var + 1e-6)  # [B, V, h*w]
+            depth = depth.view(B, V, 1, self.cfg.splat_size, self.cfg.splat_size)  # [B, V, 1, h, w]
 
         results['gaussians'] = gaussians    # [B, V*h*w, 14]
 
@@ -406,34 +406,32 @@ class LGM(nn.Module):
 
         if lambda_depth > 0 and self.cfg.pixel_align:
             # Flatten spatial dimensions for consistent normalization
-            disp_gt = 1.0 / gt_depths.clamp(min=1e-3)  # [B, V, 1, H, W]
-            disp_gt = disp_gt.view(B, V, -1)  # [B, V, H*W]
-            disp_median_gt = torch.median(disp_gt, dim=-1, keepdim=True)[0]  # [B, V, 1]
-            disp_var_gt = (disp_gt - disp_median_gt).abs().mean(dim=-1, keepdim=True)  # [B, V, 1]
-            disp_gt = (disp_gt - disp_median_gt) / (disp_var_gt + 1e-6)  # [B, V, H*W]
-            disp_gt = disp_gt.view(B, V, 1, self.cfg.splat_size, self.cfg.splat_size)  # [B, V, 1, h, w]
+            # disp_gt = 1.0 / gt_depths.clamp(min=1e-3)  # [B, V, 1, H, W]
+            # disp_gt = disp_gt.view(B, V, -1)  # [B, V, H*W]
+            # disp_median_gt = torch.median(disp_gt, dim=-1, keepdim=True)[0]  # [B, V, 1]
+            # disp_var_gt = (disp_gt - disp_median_gt).abs().mean(dim=-1, keepdim=True)  # [B, V, 1]
+            # disp_gt = (disp_gt - disp_median_gt) / (disp_var_gt + 1e-6)  # [B, V, H*W]
+            # disp_gt = disp_gt.view(B, V, 1, self.cfg.splat_size, self.cfg.splat_size)  # [B, V, 1, h, w]
             
             loss_depth_all = self.depth_loss(
-                disp_pred,
-                disp_gt,
+                depth,
+                gt_depths,
                 None,
                 gt_masks_in,
                 loss_type=depth_loss_type,
             )
             loss = loss + lambda_depth * (loss_depth_all)
+            results['loss_depth'] = loss_depth_all
         
         if lambda_grad > 0 and self.cfg.pixel_align:
-            pred_depths_for_grad = depth.view(B, V, 1, self.cfg.splat_size, self.cfg.splat_size)
-            # Resize alpha masks to match depth size for gradient loss
-            pred_alphas_grad = None
-            gt_masks_grad = gt_masks_in
             loss_grad_all = self.depth_gradient_loss(
-                pred_depths_for_grad,
+                depth,
                 gt_depths,
-                pred_alphas_grad,
-                gt_masks_grad,
+                None,
+                gt_masks_in,
             )
             loss = loss + lambda_grad * (loss_grad_all)
+            results['loss_depth_grad'] = loss_grad_all
         
         if lambda_opacity > 0:
             # opacity regularization

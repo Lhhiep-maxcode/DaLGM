@@ -239,10 +239,12 @@ def main():
                         "Train psnr (10 steps)": psnr_val,
                         "Train ssim (10 steps)": ssim_val,
                         "Train lpips (10 steps)": lpips_val,
-                        "Train abs_diff (10 steps)": abs_diff_val,
-                        "Train abs_rel (10 steps)": abs_rel_val,
-                        "Train sq_rel (10 steps)": sq_rel_val,
-                        "Train delta_1 (10 steps)": delta_1_val,
+                        "Train depth loss (10 steps)": out.get('loss_depth', 0).detach().item(),
+                        "Train depth grad loss (10 steps)": out.get('loss_depth_grad', 0).detach().item(),
+                        # "Train abs_diff (10 steps)": abs_diff_val,
+                        # "Train abs_rel (10 steps)": abs_rel_val,
+                        # "Train sq_rel (10 steps)": sq_rel_val,
+                        # "Train delta_1 (10 steps)": delta_1_val,
                     })
 
                 # save log images
