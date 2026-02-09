@@ -31,6 +31,8 @@ class LGM(nn.Module):
             up_attention=self.cfg.up_attention,
         )
 
+        # x2 upsample
+        self.upsample = nn.Conv2d(14, 14, kernel_size=3, stride=1, padding=1)
         # last conv
         self.conv = nn.Conv2d(14, 14, kernel_size=1)
 
@@ -103,7 +105,9 @@ class LGM(nn.Module):
         images = images.view(B*V, C, H, W)
 
         x = self.unet(images)   # [B*5, 14, H, W]
-        x = self.conv(x)        # [B*5, 14, H, W]
+        x = F.interpolate(x, scale_factor=2.0, mode='nearest')  # [B*5, 14, 2*H, 2*W]
+        x = self.upsample(x)    # [B*5, 14, 2*H, 2*W]
+        x = self.conv(x)        # [B*5, 14, 2*H, 2*W]
 
         x = x.reshape(B, self.cfg.num_views_input, 14, self.cfg.splat_size, self.cfg.splat_size)
 
@@ -121,18 +125,6 @@ class LGM(nn.Module):
 
         gaussians = torch.cat([pos, opacity, scale, rotation, rgbs], dim=-1)    # [B, N, 14]
         return gaussians
-
-    def normalize_disparity(self, depth):
-        B, V = depth.shape[:2]
-        original_shape = depth.shape
-        
-        disp = 1.0 / depth.clamp(min=1e-3)
-        disp = disp.view(B, V, -1)  # [B, V, H*W]
-        disp_median = torch.median(disp, dim=-1, keepdim=True)[0]  # [B, V, 1]
-        disp_var = (disp - disp_median).abs().mean(dim=-1, keepdim=True)  # [B, V, 1]
-        disp = (disp - disp_median) / (disp_var + 1e-6)  # [B, V, H*W]
-        
-        return disp.view(original_shape)
 
     def depth_loss(
         self,
@@ -372,8 +364,11 @@ class LGM(nn.Module):
             pos_cam = pos @ input_w2c[:, :, :3, :3].transpose(-1, -2).contiguous() + input_w2c[:, :, :3, 3:4].transpose(-1, -2).contiguous()
             # get z-axis as depth value
             depth = pos_cam[..., 2]  # [B, V, h*w]
-            depth_for_norm = depth.view(B, V, 1, self.cfg.splat_size, self.cfg.splat_size)
-            disp_pred = self.normalize_disparity(depth_for_norm)  # [B, V, 1, h, w]
+            # disp_pred = 1.0 / depth.clamp(min=1e-3)  # [B, V, h*w]
+            # disp_median = torch.median(disp_pred, dim=-1, keepdim=True)[0]  # [B, V, 1]
+            # disp_var = (disp_pred - disp_median).abs().mean(dim=-1, keepdim=True)  # [B, V, 1]
+            # disp_pred = (disp_pred - disp_median) / (disp_var + 1e-6)  # [B, V, h*w]
+            depth = depth.view(B, V, 1, self.cfg.splat_size, self.cfg.splat_size)  # [B, V, 1, h, w]
 
         results['gaussians'] = gaussians    # [B, V*h*w, 14]
 
@@ -414,28 +409,33 @@ class LGM(nn.Module):
             loss = loss + lambda_lpips * (loss_lpips_all) # + lambda_lpips * (lambda_top - 1) * loss_lpips_top
 
         if lambda_depth > 0 and self.cfg.pixel_align:
-            disp_gt = self.normalize_disparity(gt_depths)            
+            # Flatten spatial dimensions for consistent normalization
+            # disp_gt = 1.0 / gt_depths.clamp(min=1e-3)  # [B, V, 1, H, W]
+            # disp_gt = disp_gt.view(B, V, -1)  # [B, V, H*W]
+            # disp_median_gt = torch.median(disp_gt, dim=-1, keepdim=True)[0]  # [B, V, 1]
+            # disp_var_gt = (disp_gt - disp_median_gt).abs().mean(dim=-1, keepdim=True)  # [B, V, 1]
+            # disp_gt = (disp_gt - disp_median_gt) / (disp_var_gt + 1e-6)  # [B, V, H*W]
+            # disp_gt = disp_gt.view(B, V, 1, self.cfg.splat_size, self.cfg.splat_size)  # [B, V, 1, h, w]
+            
             loss_depth_all = self.depth_loss(
-                disp_pred,
-                disp_gt,
+                depth,
+                gt_depths,
                 None,
                 gt_masks_in,
                 loss_type=depth_loss_type,
             )
             loss = loss + lambda_depth * (loss_depth_all)
+            results['loss_depth'] = loss_depth_all
         
         if lambda_grad > 0 and self.cfg.pixel_align:
-            pred_depths_for_grad = depth.view(B, V, 1, self.cfg.splat_size, self.cfg.splat_size)
-            # Resize alpha masks to match depth size for gradient loss
-            pred_alphas_grad = None
-            gt_masks_grad = gt_masks_in
             loss_grad_all = self.depth_gradient_loss(
-                pred_depths_for_grad,
+                depth,
                 gt_depths,
-                pred_alphas_grad,
-                gt_masks_grad,
+                None,
+                gt_masks_in,
             )
             loss = loss + lambda_grad * (loss_grad_all)
+            results['loss_depth_grad'] = loss_grad_all
         
         if lambda_opacity > 0:
             # opacity regularization
@@ -464,20 +464,10 @@ class LGM(nn.Module):
             results['lpips'] = lpips
 
             # Depth metrics
-            if self.cfg.pixel_align:
-                depth_for_metric = depth.view(B, V, 1, self.cfg.splat_size, self.cfg.splat_size)
-                disp_metric = self.normalize_disparity(depth_for_metric)
-                disp_gt_metric = self.normalize_disparity(gt_depths)
-                
-                depth_metrics_dict = self.depth_metrics(disp_metric, disp_gt_metric, None, gt_masks_in)
-                results['abs_diff'] = depth_metrics_dict['abs_diff']
-                results['abs_rel'] = depth_metrics_dict['abs_rel']
-                results['sq_rel'] = depth_metrics_dict['sq_rel']
-                results['delta_1'] = depth_metrics_dict['delta_1']
-            else:
-                results['abs_diff'] = torch.tensor(0.0, device=images.device)
-                results['abs_rel'] = torch.tensor(0.0, device=images.device)
-                results['sq_rel'] = torch.tensor(0.0, device=images.device)
-                results['delta_1'] = torch.tensor(0.0, device=images.device)
+            # depth_metrics = self.depth_metrics(pred_depths, gt_depths, pred_alphas, gt_masks)
+            results['abs_diff'] = torch.tensor(0.0, device=images.device)
+            results['abs_rel'] = torch.tensor(0.0, device=images.device)
+            results['sq_rel'] = torch.tensor(0.0, device=images.device)
+            results['delta_1'] = torch.tensor(0.0, device=images.device)
 
         return results

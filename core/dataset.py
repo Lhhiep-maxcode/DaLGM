@@ -106,6 +106,13 @@ class ObjaverseDataset(Dataset):
     def __len__(self):
         return len(self.items_depth)
     
+    def find_nonzero_bbox(self, alpha_channel):
+        """Find bounding box (ymin, ymax, xmin, xmax) where alpha > 0."""
+        ys, xs = np.where(alpha_channel > 0.000001)
+        if len(xs) == 0 or len(ys) == 0:  # Fully transparent
+            return None
+        return ys.min(), ys.max(), xs.min(), xs.max()
+    
     def __getitem__(self, idx):
         #  NEED TO PROCESS DATA IN .OBJ FORMAT TO (IMAGE-CAMERA POSE) PAIRS
         # your_dataset/
@@ -138,6 +145,10 @@ class ObjaverseDataset(Dataset):
 
         origin_elev = self.cam_config[view_ids[0]][0]
         origin_azim = self.cam_config[view_ids[0]][1]
+
+        global_ymin, global_ymax = 1e9, -1
+        global_xmin, global_xmax = 1e9, -1
+
         for view_id in view_ids:
         
             # data path: /kaggle/input/objaverse-subset/archive_4
@@ -145,6 +156,20 @@ class ObjaverseDataset(Dataset):
 
             # try:
             image = cv2.imread(image_path, cv2.IMREAD_UNCHANGED)  # shape: [512, 512, 4]
+
+            # Image cropping
+            alpha = image[:, :, 3]
+            bbox = self.find_nonzero_bbox(alpha)
+            if bbox is None:
+                print(f"Fully transparent image at {item_path}")
+                bbox = (1e9, -1, 1e9, -1)
+            
+            ymin, ymax, xmin, xmax = bbox
+            global_ymin = min(global_ymin, ymin)
+            global_ymax = max(global_ymax, ymax)
+            global_xmin = min(global_xmin, xmin)
+            global_xmax = max(global_xmax, xmax)
+
             try:
                 depth = torch.from_numpy(np.load(os.path.join(item_depth_path, 'depth', f'{view_id:03d}.npz'))['data'])  # shape: [512, 512]
             except:
@@ -174,6 +199,16 @@ class ObjaverseDataset(Dataset):
             masks.append(mask.squeeze(0))
             depths.append(depth)
             cam_poses.append(c2w)
+
+        origin_size = images[0].shape[1]
+        res_ymax = origin_size - global_ymax
+        res_ymin = global_ymin
+        res_xmax = origin_size - global_xmax
+        res_xmin = global_xmin
+        min_res = min(res_ymax, min(res_ymin, min(res_xmax, res_xmin)))
+        images = [image[:, min_res:(origin_size - min_res), min_res:(origin_size - min_res)] for image in images]
+        masks = [mask[min_res:(origin_size - min_res), min_res:(origin_size - min_res)] for mask in masks]
+        depths = [depth[:, min_res:(origin_size - min_res), min_res:(origin_size - min_res)] for depth in depths]
 
         view_cnt = len(images)
         if view_cnt < (self.cfg.num_views_input + self.cfg.num_views_output):
