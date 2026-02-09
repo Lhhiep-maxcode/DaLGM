@@ -29,6 +29,81 @@ class GaussianRenderer:
         self.projection_matrix[2, 2] = (cfg.zfar + cfg.znear) / (cfg.zfar - cfg.znear)
         self.projection_matrix[3, 2] = - (cfg.zfar * cfg.znear) / (cfg.zfar - cfg.znear)
         self.projection_matrix[2, 3] = 1
+    
+    def compute_surface_depth(self, means3D, opacity, scales, rotations, view_matrix, campos, 
+                             opacity_threshold=0.1, image_height=512, image_width=512):
+        """
+        Compute surface depth by finding the closest Gaussian with sufficient opacity.        
+        opacity threshold is fixed to 0.1
+        Returns surface_depth: [1, H, W]
+        """
+        device = means3D.device
+        N = means3D.shape[0]
+        
+        # Transform Gaussians to camera space
+        means3D_hom = torch.cat([means3D, torch.ones(N, 1, device=device)], dim=-1)  # [N, 4]
+        means3D_cam = (view_matrix @ means3D_hom.T).T  # [N, 4]
+        depths_3d = means3D_cam[:, 2]  # [N] - depth in camera space (z)
+        
+        # Filter out Gaussians behind camera or with low opacity
+        valid_mask = (depths_3d > 0) & (opacity.squeeze(-1) >= opacity_threshold)  # [N]
+        
+        if valid_mask.sum() == 0:
+            return torch.full((1, image_height, image_width), self.cfg.zfar, 
+                            dtype=torch.float32, device=device)
+        
+        # Project Gaussians to image space
+        # x_2D = (x_cam / z_cam) × fx + cx
+        # y_2D = (y_cam / z_cam) × fy + cy    
+        fx = image_width / (2 * self.tan_half_fov)
+        fy = image_height / (2 * self.tan_half_fov)
+        cx = image_width / 2
+        cy = image_height / 2
+        
+        x_2d = (means3D_cam[:, 0] / means3D_cam[:, 2]) * fx + cx  # [N]
+        y_2d = (means3D_cam[:, 1] / means3D_cam[:, 2]) * fy + cy  # [N]
+        
+        # Initialize surface depth map with far plane
+        surface_depth = torch.full((image_height, image_width), self.cfg.zfar, 
+                                  dtype=torch.float32, device=device)
+        
+        # For each valid Gaussian, update pixels within its influence
+        valid_means3D = means3D[valid_mask]
+        valid_opacity = opacity[valid_mask]
+        valid_depths = depths_3d[valid_mask]
+        valid_x2d = x_2d[valid_mask]
+        valid_y2d = y_2d[valid_mask]
+        valid_scales = scales[valid_mask]
+        
+        # Estimate influence radius for each Gaussian
+        # each gaussian not only affects its center pixel, but also neighboring pixels
+        influence_radius = valid_scales.max(dim=-1)[0] * 3.0  # 3 sigma coverage ~ 99.7%, maybe can change?
+        influence_radius_pixels = influence_radius * fx / valid_depths  # Convert to pixel space
+        
+        # For each valid Gaussian, update the depth map
+        for i in range(len(valid_means3D)):
+            x_center = valid_x2d[i].item()
+            y_center = valid_y2d[i].item()
+            radius = max(influence_radius_pixels[i].item(), 1.0)
+            
+            # Bounding box in pixel space
+            x_min = max(0, int(x_center - radius))
+            x_max = min(image_width, int(x_center + radius) + 1)
+            y_min = max(0, int(y_center - radius))
+            y_max = min(image_height, int(y_center + radius) + 1)
+            
+            if x_min >= x_max or y_min >= y_max:
+                continue
+            
+            # Update depth map: keep minimum depth
+            current_depth = valid_depths[i].item()
+            surface_depth[y_min:y_max, x_min:x_max] = torch.min(
+                surface_depth[y_min:y_max, x_min:x_max],
+                torch.full((y_max - y_min, x_max - x_min), current_depth, 
+                          dtype=torch.float32, device=device)
+            )
+        
+        return surface_depth.unsqueeze(0)  # [1, H, W]
 
     def render(self, gaussians, cam_view, cam_view_proj, cam_pos, bg_color=None, scale_modifier=1):
         # gaussians: [B, N, 14]
@@ -43,6 +118,8 @@ class GaussianRenderer:
         images = []
         alphas = []
         depths = []
+        surface_depths = [] if self.cfg.compute_surface else None
+        
         for b in range(B):
 
             # pos, opacity, scale, rotation, shs
@@ -93,15 +170,33 @@ class GaussianRenderer:
                 images.append(rendered_image)
                 alphas.append(rendered_alpha)
                 depths.append(rendered_depth)
+                
+                # Compute surface depth if requested (for LGM without pixel_align)
+                if self.cfg.compute_surface:
+                    surf_depth = self.compute_surface_depth(
+                        means3D, opacity, scales, rotations,
+                        view_matrix, campos,
+                        opacity_threshold=0.1,
+                        image_height=self.cfg.output_size,
+                        image_width=self.cfg.output_size
+                    )
+                    surface_depths.append(surf_depth)
 
         images = torch.stack(images, dim=0).view(B, V, 3, self.cfg.output_size, self.cfg.output_size)
         alphas = torch.stack(alphas, dim=0).view(B, V, 1, self.cfg.output_size, self.cfg.output_size)
         depths = torch.stack(depths, dim=0).view(B, V, 1, self.cfg.output_size, self.cfg.output_size)
-        return {
+        
+        result = {
             "image": images, # [B, V, 3, H, W]
             "alpha": alphas, # [B, V, 1, H, W]
-            "depth": depths, # [B, V, 1, H, W]
+            "depth": depths, # [B, V, 1, H, W] - volume
         }
+        
+        if self.cfg.compute_surface:
+            surface_depths = torch.stack(surface_depths, dim=0).view(B, V, 1, self.cfg.output_size, self.cfg.output_size)
+            result["surface_depth"] = surface_depths  # [B, V, 1, H, W] - surface
+        
+        return result
 
     def save_ply(self, gaussians, path, compatible=True):
         # Target Gaussians example:

@@ -464,10 +464,46 @@ class LGM(nn.Module):
             results['lpips'] = lpips
 
             # Depth metrics
-            # depth_metrics = self.depth_metrics(pred_depths, gt_depths, pred_alphas, gt_masks)
-            results['abs_diff'] = torch.tensor(0.0, device=images.device)
-            results['abs_rel'] = torch.tensor(0.0, device=images.device)
-            results['sq_rel'] = torch.tensor(0.0, device=images.device)
-            results['delta_1'] = torch.tensor(0.0, device=images.device)
+            if self.cfg.compute_surface and not self.cfg.pixel_align:
+                surface_depths_pred = rendered_results.get('surface_depth', None)
+                if surface_depths_pred is not None:
+                    # Resize surface depth to match gt_depths size
+                    surface_depths_pred_resized = F.interpolate(
+                        surface_depths_pred.view(B * V, 1, self.cfg.output_size, self.cfg.output_size),
+                        size=(self.cfg.splat_size, self.cfg.splat_size),
+                        mode='nearest'
+                    ).view(B, V, 1, self.cfg.splat_size, self.cfg.splat_size)
+                    
+                    depth_metrics = self.depth_metrics(
+                        surface_depths_pred_resized, 
+                        gt_depths, 
+                        pred_alphas, 
+                        gt_masks_in
+                    )
+                    results['abs_diff'] = depth_metrics['abs_diff']
+                    results['abs_rel'] = depth_metrics['abs_rel']
+                    results['sq_rel'] = depth_metrics['sq_rel']
+                    results['delta_1'] = depth_metrics['delta_1']
+                else:
+                    results['abs_diff'] = torch.tensor(0.0, device=images.device)
+                    results['abs_rel'] = torch.tensor(0.0, device=images.device)
+                    results['sq_rel'] = torch.tensor(0.0, device=images.device)
+                    results['delta_1'] = torch.tensor(0.0, device=images.device)
+            elif self.cfg.pixel_align:
+                depth_metrics = self.depth_metrics(
+                    pred_depths, 
+                    gt_depths, 
+                    pred_alphas, 
+                    gt_masks_in
+                )
+                results['abs_diff'] = depth_metrics['abs_diff']
+                results['abs_rel'] = depth_metrics['abs_rel']
+                results['sq_rel'] = depth_metrics['sq_rel']
+                results['delta_1'] = depth_metrics['delta_1']
+            else:
+                results['abs_diff'] = torch.tensor(0.0, device=images.device)
+                results['abs_rel'] = torch.tensor(0.0, device=images.device)
+                results['sq_rel'] = torch.tensor(0.0, device=images.device)
+                results['delta_1'] = torch.tensor(0.0, device=images.device)
 
         return results
