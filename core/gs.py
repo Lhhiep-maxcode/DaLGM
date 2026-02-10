@@ -41,8 +41,7 @@ class GaussianRenderer:
         N = means3D.shape[0]
         
         # Transform Gaussians to camera space
-        means3D_world = means3D * self.cfg.cam_radius
-        means3D_hom = torch.cat([means3D_world, torch.ones(N, 1, device=device)], dim=-1)  # [N, 4]
+        means3D_hom = torch.cat([means3D, torch.ones(N, 1, device=device)], dim=-1)  # [N, 4]
         means3D_cam = (means3D_hom @ view_matrix)  # [N, 4] @ [4, 4] = [N, 4]
         depths_3d = means3D_cam[:, 2]  # [N]
         
@@ -65,8 +64,9 @@ class GaussianRenderer:
         x_2d = (means3D_cam[:, 0] / z_cam) * fx + cx  # [N]
         y_2d = (means3D_cam[:, 1] / z_cam) * fy + cy  # [N]      
       
-        # Initialize surface depth map with far plane
-        surface_depth = torch.full((image_height, image_width), self.cfg.zfar, 
+
+        # Initialize surface depth map with 0
+        surface_depth = torch.full((image_height, image_width), 0.0, 
                                   dtype=torch.float32, device=device)
         
         # For each valid Gaussian, update pixels within its influence
@@ -97,12 +97,16 @@ class GaussianRenderer:
             if x_min >= x_max or y_min >= y_max:
                 continue
             
-            # Update depth map: keep minimum depth
+             # Update depth map: for pixels already written (>0), keep minimum depth
+            # For unwritten pixels (==0), write current depth
             current_depth = valid_depths[i].item()
-            surface_depth[y_min:y_max, x_min:x_max] = torch.min(
-                surface_depth[y_min:y_max, x_min:x_max],
-                torch.full((y_max - y_min, x_max - x_min), current_depth, 
-                          dtype=torch.float32, device=device)
+            region = surface_depth[y_min:y_max, x_min:x_max]
+            current_depth_tensor = torch.full((y_max - y_min, x_max - x_min), current_depth, 
+                                             dtype=torch.float32, device=device)
+            surface_depth[y_min:y_max, x_min:x_max] = torch.where(
+                region == 0,
+                current_depth_tensor,
+                torch.min(region, current_depth_tensor)
             )
         
         return surface_depth.unsqueeze(0)  # [1, H, W]
