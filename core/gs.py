@@ -41,9 +41,10 @@ class GaussianRenderer:
         N = means3D.shape[0]
         
         # Transform Gaussians to camera space
-        means3D_hom = torch.cat([means3D, torch.ones(N, 1, device=device)], dim=-1)  # [N, 4]
-        means3D_cam = (view_matrix @ means3D_hom.T).T  # [N, 4]
-        depths_3d = means3D_cam[:, 2]  # [N] - depth in camera space (z)
+        means3D_world = means3D * self.cfg.cam_radius
+        means3D_hom = torch.cat([means3D_world, torch.ones(N, 1, device=device)], dim=-1)  # [N, 4]
+        means3D_cam = (means3D_hom @ view_matrix)  # [N, 4] @ [4, 4] = [N, 4]
+        depths_3d = means3D_cam[:, 2]  # [N]
         
         # Filter out Gaussians behind camera or with low opacity
         valid_mask = (depths_3d > 0) & (opacity.squeeze(-1) >= opacity_threshold)  # [N]
@@ -60,9 +61,10 @@ class GaussianRenderer:
         cx = image_width / 2
         cy = image_height / 2
         
-        x_2d = (means3D_cam[:, 0] / means3D_cam[:, 2]) * fx + cx  # [N]
-        y_2d = (means3D_cam[:, 1] / means3D_cam[:, 2]) * fy + cy  # [N]
-        
+        z_cam = means3D_cam[:, 2].clamp(min=1e-6)  
+        x_2d = (means3D_cam[:, 0] / z_cam) * fx + cx  # [N]
+        y_2d = (means3D_cam[:, 1] / z_cam) * fy + cy  # [N]      
+      
         # Initialize surface depth map with far plane
         surface_depth = torch.full((image_height, image_width), self.cfg.zfar, 
                                   dtype=torch.float32, device=device)
@@ -78,7 +80,7 @@ class GaussianRenderer:
         # Estimate influence radius for each Gaussian
         # each gaussian not only affects its center pixel, but also neighboring pixels
         influence_radius = valid_scales.max(dim=-1)[0] * 3.0  # 3 sigma coverage ~ 99.7%, maybe can change?
-        influence_radius_pixels = influence_radius * fx / valid_depths  # Convert to pixel space
+        influence_radius_pixels = influence_radius * fx / valid_depths.clamp(min=1e-6)  # Convert to pixel space
         
         # For each valid Gaussian, update the depth map
         for i in range(len(valid_means3D)):

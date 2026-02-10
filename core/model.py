@@ -264,16 +264,23 @@ class LGM(nn.Module):
         
         for b in range(B):
             for v in range(V):
-                mask = pred_alpha[b, v] > 0.1
-                mask = mask & (gt_depth[b, v] > 0.01)
+                pred_alpha_bv = pred_alpha[b, v].squeeze(0)  # [H, W]
+                gt_depth_bv = gt_depth[b, v].squeeze(0)      # [H, W]
+                pred_depth_bv = pred_depth[b, v].squeeze(0)  # [H, W]
+                
+                # Create mask
+                mask = pred_alpha_bv > 0.1
+                mask = mask & (gt_depth_bv > 0.01)
+                
                 if gt_alpha is not None:
-                    mask = mask & (gt_alpha[b, v] > 0.01)
+                    gt_alpha_bv = gt_alpha[b, v].squeeze(0)  # [H, W]
+                    mask = mask & (gt_alpha_bv > 0.01)
                 
                 if mask.sum() < min_valid:
                     continue
                 
-                pred = pred_depth[b, v][mask]
-                gt = gt_depth[b, v][mask]
+                pred = pred_depth_bv[mask]
+                gt = gt_depth_bv[mask]
                 
                 abs_diff = torch.abs(pred - gt).mean()
                 abs_diff_list.append(abs_diff)
@@ -390,6 +397,9 @@ class LGM(nn.Module):
         results['depths_pred'] = pred_depths
         results['depths_pred_rasterized'] = rendered_results['depth']
         
+        if self.cfg.compute_surface and 'surface_depth' in rendered_results:
+            results['surface_depth'] = rendered_results['surface_depth']  # [B, V, 1, output_size, output_size]
+        
         gt_images = data['images_output']   # [B, V, 3, output_size, output_size], ground-truth novel views
         gt_masks = data['masks_output']     # [B, V, 1, output_size, output_size], ground-truth masks
         gt_depths = data['depths_input']   # [B, V, 1, splat_size, splat_size], ground-truth depths
@@ -474,10 +484,17 @@ class LGM(nn.Module):
                         mode='nearest'
                     ).view(B, V, 1, self.cfg.splat_size, self.cfg.splat_size)
                     
+                    pred_alphas_resized = F.interpolate(
+                        pred_alphas.view(B * V, 1, self.cfg.output_size, self.cfg.output_size),
+                        size=(self.cfg.splat_size, self.cfg.splat_size),
+                        mode='bilinear',
+                        align_corners=False
+                    ).view(B, V, 1, self.cfg.splat_size, self.cfg.splat_size)
+                    
                     depth_metrics = self.depth_metrics(
                         surface_depths_pred_resized, 
                         gt_depths, 
-                        pred_alphas, 
+                        pred_alphas_resized, 
                         gt_masks_in
                     )
                     results['abs_diff'] = depth_metrics['abs_diff']
@@ -490,10 +507,17 @@ class LGM(nn.Module):
                     results['sq_rel'] = torch.tensor(0.0, device=images.device)
                     results['delta_1'] = torch.tensor(0.0, device=images.device)
             elif self.cfg.pixel_align:
+                pred_alphas_resized = F.interpolate(
+                    pred_alphas.view(B * V, 1, self.cfg.output_size, self.cfg.output_size),
+                    size=(self.cfg.splat_size, self.cfg.splat_size),
+                    mode='bilinear',
+                    align_corners=False
+                ).view(B, V, 1, self.cfg.splat_size, self.cfg.splat_size)
+                
                 depth_metrics = self.depth_metrics(
                     pred_depths, 
                     gt_depths, 
-                    pred_alphas, 
+                    pred_alphas_resized,
                     gt_masks_in
                 )
                 results['abs_diff'] = depth_metrics['abs_diff']
