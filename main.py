@@ -5,13 +5,86 @@ from safetensors.torch import load_file
 from core.dataset import ObjaverseDataset as Dataset
 from tqdm.auto import tqdm
 from torch.optim.lr_scheduler import LambdaLR
+from pydrive2.auth import GoogleAuth
+from pydrive2.drive import GoogleDrive
 
-
+import os
 import torch
 import tyro
 import kiui
 import wandb
 import numpy as np
+
+
+def upload_to_gdrive(local_path: str, folder_id: str = None, service_account_file: str = "service_account.json"):
+    """
+    Upload a file or folder to Google Drive using a service account.
+    Automatically deletes existing files/folders with the same name before uploading.
+    
+    Args:
+        local_path: Path to the local file or folder to upload
+        folder_id: Google Drive folder ID to upload to (optional)
+        service_account_file: Path to service account JSON credentials
+    """
+    try:
+        # Authenticate using service account
+        gauth = GoogleAuth()
+        gauth.settings['client_config_backend'] = 'service'
+        gauth.settings['service_config'] = {
+            'client_json_file_path': service_account_file,
+        }
+        gauth.ServiceAuth()
+        drive = GoogleDrive(gauth)
+        
+        upload_name = os.path.basename(local_path)
+        
+        # Delete existing file/folder with the same name
+        if folder_id:
+            query = f"title='{upload_name}' and '{folder_id}' in parents and trashed=false"
+        else:
+            query = f"title='{upload_name}' and 'root' in parents and trashed=false"
+        
+        existing_files = drive.ListFile({'q': query}).GetList()
+        for existing in existing_files:
+            print(f"[GDRIVE] Deleting existing '{existing['title']}' (id: {existing['id']})")
+            existing.Delete()
+        
+        if os.path.isdir(local_path):
+            # Upload entire folder
+            folder_name = upload_name
+            # Create folder in Drive
+            folder_metadata = {
+                'title': folder_name,
+                'mimeType': 'application/vnd.google-apps.folder'
+            }
+            if folder_id:
+                folder_metadata['parents'] = [{'id': folder_id}]
+            
+            drive_folder = drive.CreateFile(folder_metadata)
+            drive_folder.Upload()
+            new_folder_id = drive_folder['id']
+            
+            # Upload all files in the folder
+            for filename in os.listdir(local_path):
+                file_path = os.path.join(local_path, filename)
+                if os.path.isfile(file_path):
+                    file_metadata = {'title': filename, 'parents': [{'id': new_folder_id}]}
+                    gfile = drive.CreateFile(file_metadata)
+                    gfile.SetContentFile(file_path)
+                    gfile.Upload()
+            print(f"[GDRIVE] Uploaded folder '{folder_name}' successfully")
+        else:
+            # Upload single file
+            file_metadata = {'title': upload_name}
+            if folder_id:
+                file_metadata['parents'] = [{'id': folder_id}]
+            gfile = drive.CreateFile(file_metadata)
+            gfile.SetContentFile(local_path)
+            gfile.Upload()
+            print(f"[GDRIVE] Uploaded '{local_path}' successfully")
+            
+    except Exception as e:
+        print(f"[GDRIVE ERROR] Failed to upload: {e}")
 
 def transformer_lr_lambda(step, d_model=512, warmup_steps=4000, peak_lr=1e-4):
     """
@@ -248,7 +321,7 @@ def main():
                     })
 
                 # save log images
-                if i % 500 == 0:
+                if i % 5e10 == 0:
                     with torch.no_grad():
                         gt_images = data['images_output'].detach().cpu().numpy() # [B, V, 3, output_size, output_size]
                         gt_images = gt_images.transpose(0, 3, 1, 4, 2).reshape(-1, gt_images.shape[1] * gt_images.shape[3], 3)    # [B * output_size, V * output_size, 3]
@@ -306,6 +379,13 @@ def main():
 
         accelerator.wait_for_everyone()
         accelerator.save_state(output_dir=f'{cfg.workspace}/lastest')
+        if accelerator.is_main_process and cfg.gdrive_folder_id:
+            upload_to_gdrive(
+                local_path=f'{cfg.workspace}/lastest',
+                folder_id=cfg.gdrive_folder_id,
+                service_account_file=cfg.gdrive_service_account
+            )
+
 
         # eval
         with torch.no_grad():
@@ -341,7 +421,7 @@ def main():
 
                 if accelerator.is_main_process:
                     pbar2.update(1)
-                    if i % 100 == 0:
+                    if i % 1e10 == 0:
                         gt_images = data['images_output'].detach().cpu().numpy()    # [B, V, 3, output_size, output_size]
                         gt_images = gt_images.transpose(0, 3, 1, 4, 2).reshape(-1, gt_images.shape[1] * gt_images.shape[3], 3)
                         kiui.utils.write_image(f'{cfg.workspace}/{epoch}_{i}_eval_gt_images.jpg', gt_images)
@@ -389,6 +469,13 @@ def main():
                 if accelerator.is_main_process:
                     accelerator.print("Best found => Saving model....")
                     accelerator.save_model(model, f'{cfg.workspace}/best')
+                    # Upload to Google Drive
+                    if cfg.gdrive_folder_id:
+                        upload_to_gdrive(
+                            local_path=f'{cfg.workspace}/best',
+                            folder_id=cfg.gdrive_folder_id,
+                            service_account_file=cfg.gdrive_service_account
+                        )
 
 
 if __name__ == "__main__":

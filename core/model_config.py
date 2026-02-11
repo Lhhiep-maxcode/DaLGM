@@ -101,6 +101,12 @@ class Options:
     # render fancy video with gaussian scaling effect
     fancy_video: bool = False
 
+    ### Google Drive upload
+    # Google Drive folder ID to upload best checkpoints (leave None to disable)
+    gdrive_folder_id: Optional[str] = None
+    # Path to Google service account JSON file
+    gdrive_service_account: str = 'service_account.json'
+
 
 # all the default settings
 config_defaults: Dict[str, Options] = {}
