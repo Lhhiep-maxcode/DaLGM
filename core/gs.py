@@ -36,7 +36,7 @@ class GaussianRenderer:
         # cam_view_proj: [B, V, 4, 4]  (Transforming (world space -> clip space) for perspective projection: projection_matrix @ cam_view) 
         # cam_pos: [B, V, 3]
 
-        device = gaussians.device
+        device = gaussians[0].device
         B, V = cam_view.shape[:2]
 
         # loop of loop...
@@ -46,11 +46,11 @@ class GaussianRenderer:
         for b in range(B):
 
             # pos, opacity, scale, rotation, shs
-            means3D = gaussians[b, :, 0:3].contiguous().float()
-            opacity = gaussians[b, :, 3:4].contiguous().float()
-            scales = gaussians[b, :, 4:7].contiguous().float()
-            rotations = gaussians[b, :, 7:11].contiguous().float()
-            rgbs = gaussians[b, :, 11:].contiguous().float() # [N, 3]
+            means3D = gaussians[b][:, 0:3].contiguous().float()
+            opacity = gaussians[b][:, 3:4].contiguous().float()
+            scales = gaussians[b][:, 4:7].contiguous().float()
+            rotations = gaussians[b][:, 7:11].contiguous().float()
+            rgbs = gaussians[b][:, 11:].contiguous().float() # [N, 3]
 
             for v in range(V):
                 
