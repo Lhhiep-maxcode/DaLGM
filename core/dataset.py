@@ -142,11 +142,9 @@ class ObjaverseDataset(Dataset):
             view_ids += view_ids[-(self.cfg.num_views_input - len(self.certain_input_view_ids) - num_bonus_views):]   # num_views_input always equals to 9
         view_ids += np.random.permutation(self.test_view_ids).tolist()
         view_ids = view_ids[:(self.cfg.num_views_input + self.cfg.num_views_output)]    # num_views_input always equals to 9
-
-        # Create sorting indices for input views (sort by view_id in increasing order)
-        input_view_ids = view_ids[:self.cfg.num_views_input]
-        sort_indices_input = sorted(range(len(input_view_ids)), key=lambda i: input_view_ids[i])
-        sort_indices_input = torch.tensor(sort_indices_input, dtype=torch.long)
+        input_view_ids = sorted(view_ids[:self.cfg.num_views_input])
+        output_view_ids = view_ids[self.cfg.num_views_input:]
+        view_ids = input_view_ids + output_view_ids
         
         origin_elev = self.cam_config[view_ids[0]][0]
         origin_azim = self.cam_config[view_ids[0]][1]
@@ -259,7 +257,6 @@ class ObjaverseDataset(Dataset):
         results['cam_poses_input'] = cam_poses_input
         results['depths_input'] = depths_input
         results['masks_input'] = masks_input
-        results['sort_indices_input'] = sort_indices_input  # [V_in] - indices to sort views by view_id
 
         # resize ground-truth images, still in range [0, 1]
         if not self.cfg.self_supervised:
@@ -290,7 +287,6 @@ class ObjaverseDataset(Dataset):
         #     'cam_poses_input': ...,   ([V,4,4])
         #     'depths_input': ...,      (.......)
         #     'masks_input': ...,       (.......)
-        #     'sort_indices_input': ...,([V_in] - indices to sort views by view_id)
         #     'images_output': ...,     ([V_out,3,512,512])
         #     'masks_output': ...,      (.......)
         #     'cam_view_output': ...,          (colmap coordinate)

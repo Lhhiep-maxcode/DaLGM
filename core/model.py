@@ -305,20 +305,6 @@ class LGM(nn.Module):
 
     def gaussian_prune(self, gaussians, alpha_threshold=0.01, distance_threshold=0.02, 
                    scale_threshold=0.01, rot_threshold=0.1, rgb_threshold=0.1):
-        """
-        Prune identical/duplicate Gaussians and keep only unique ones.
-        
-        Args:
-            gaussians: [B, N, 14] - Gaussian parameters (pos, opacity, scale, rotation, rgb)
-            alpha_threshold: Minimum opacity to keep a Gaussian
-            distance_threshold: Distance threshold below which two Gaussians are considered identical
-            scale_threshold: Scale distance threshold
-            rot_threshold: Rotation distance threshold  
-            rgb_threshold: RGB color distance threshold
-            
-        Returns:
-            pruned_gaussians: List of [M_b, 14] tensors, one per batch item
-        """
         # gaussians: [B, N, 14]
         # Format: [pos(3), opacity(1), scale(3), rotation(4), rgb(3)]
 
@@ -327,41 +313,37 @@ class LGM(nn.Module):
         
         for b in range(gaussians.shape[0]):
             gaussians_b = gaussians[b]  # [N, 14]
-
             gaussians_b = gaussians_b.view(-1, H, W, 14)  # [V, h, w, 14]
             V = gaussians_b.shape[0]
             
-            # Initialize keep mask based on opacity threshold
             keep_mask = gaussians_b[..., 3] > alpha_threshold  # [V, h, w]
             
             for v in range(V):
                 v_next = (v + 1) % V
                 
-                # Current view and next adjacent view
-                gaussians_v = gaussians_b[v]  # [h, w, 14]
-                gaussians_next = gaussians_b[v_next]  # [h, w, 14]
+                gaussians_v = gaussians_b[v].view(-1, 14)  # [h, w, 14] -> [h*w, 14]
+                gaussians_next = gaussians_b[v_next].view(-1, 14)  # [h, w, 14] -> [h*w, 14]
 
-                # Extract attributes - flatten spatial dimensions
-                pos_v = gaussians_v[..., 0:3].view(-1, 3)  # [h*w, 3]
-                opacity_v = gaussians_v[..., 3].view(-1)  # [h*w]
-                scale_v = gaussians_v[..., 4:7].view(-1, 3)  # [h*w, 3]
-                rot_v = gaussians_v[..., 7:11].view(-1, 4)  # [h*w, 4]
-                rgb_v = gaussians_v[..., 11:14].view(-1, 3)  # [h*w, 3]
+                pos_v = gaussians_v[..., 0:3]
+                opacity_v = gaussians_v[..., 3]
+                scale_v = gaussians_v[..., 4:7]
+                rot_v = gaussians_v[..., 7:11]
+                rgb_v = gaussians_v[..., 11:14]
 
-                pos_next = gaussians_next[..., 0:3].view(-1, 3)  # [h*w, 3]
-                opacity_next = gaussians_next[..., 3].view(-1)  # [h*w]
-                scale_next = gaussians_next[..., 4:7].view(-1, 3)  # [h*w, 3]
-                rot_next = gaussians_next[..., 7:11].view(-1, 4)  # [h*w, 4]
-                rgb_next = gaussians_next[..., 11:14].view(-1, 3)  # [h*w, 3]
+                pos_next = gaussians_next[..., 0:3]
+                opacity_next = gaussians_next[..., 3]
+                scale_next = gaussians_next[..., 4:7]
+                rot_next = gaussians_next[..., 7:11]
+                rgb_next = gaussians_next[..., 11:14]
 
                 # Compute pairwise distances for all attributes
-                spatial_dist = torch.cdist(pos_v, pos_next)  # [h*w, h*w]
-                scale_dist = torch.cdist(scale_v, scale_next)  # [h*w, h*w]
-                rgb_dist = torch.cdist(rgb_v, rgb_next)  # [h*w, h*w]
+                spatial_dist = torch.norm(pos_v - pos_next, dim=1)  # [h*w]
+                scale_dist = torch.norm(scale_v - scale_next, dim=1)  # [h*w]
+                rgb_dist = torch.norm(rgb_v - rgb_next, dim=1)  # [h*w]
                 
                 # For rotation, use quaternion angular distance
-                rot_dot = torch.abs(rot_v @ rot_next.T)  # [h*w, h*w]
-                rot_dist = 1.0 - rot_dot.clamp(max=1.0)  # [h*w, h*w]
+                rot_dot = torch.abs(torch.sum(rot_v * rot_next, dim=1))
+                rot_dist = 1.0 - rot_dot.clamp(max=1.0)
 
                 # Combined similarity: duplicates if ALL attributes are similar
                 is_duplicate = (
@@ -369,30 +351,13 @@ class LGM(nn.Module):
                     (scale_dist < scale_threshold) &
                     (rot_dist < rot_threshold) &
                     (rgb_dist < rgb_threshold)
-                )  # [h*w, h*w]
+                )  # [h*w]
 
-                # Find duplicate pairs
-                dup_v_indices, dup_next_indices = torch.where(is_duplicate)
+                remove_v = is_duplicate & (opacity_v < opacity_next)
+                remove_next = is_duplicate & (opacity_next <= opacity_v)
                 
-                for i in range(len(dup_v_indices)):
-                    v_idx = dup_v_indices[i].item()
-                    next_idx = dup_next_indices[i].item()
-                    
-                    h_v, w_v = v_idx // W, v_idx % W
-                    h_next, w_next = next_idx // W, next_idx % W
-                    
-                    # Check current state of keep_mask
-                    if keep_mask[v, h_v, w_v] and keep_mask[v_next, h_next, w_next]:
-                        # Both are marked for keeping - remove the one with lower opacity
-                        if opacity_next[next_idx] > opacity_v[v_idx]:
-                            keep_mask[v, h_v, w_v] = False
-                        else:
-                            keep_mask[v_next, h_next, w_next] = False
-                    elif ((keep_mask[v, h_v, w_v] or keep_mask[v_next, h_next, w_next]) 
-                          and torch.abs(opacity_v[v_idx]) >= alpha_threshold
-                          and torch.abs(opacity_next[next_idx]) >= alpha_threshold):
-                        keep_mask[v, h_v, w_v] = False
-                        keep_mask[v_next, h_next, w_next] = False
+                keep_mask[v].view(-1)[remove_v] = False
+                keep_mask[v_next].view(-1)[remove_next] = False
         
             gaussians_b = gaussians_b[keep_mask]
             pruned_gaussians.append(gaussians_b)
@@ -468,6 +433,7 @@ class LGM(nn.Module):
         device = gaussians.device
         gaussians = self.gaussian_prune(gaussians)  # list of [M_b, 14], M_b is the number of Gaussians after pruning for batch b
         results['gaussians'] = gaussians
+        results['average_kept_gaussians'] = torch.tensor(sum([g.shape[0] for g in gaussians]) / (len(gaussians) * self.cfg.splat_size * self.cfg.splat_size * V), device=device)
 
         # always use white background
         bg_color = torch.ones(3, dtype=torch.float32, device=device)

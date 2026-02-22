@@ -51,6 +51,12 @@ else
 fi
 
 cd ..
+
+mkdir -p best_phase1
+cd best_phase1
+gdown 1t1HkFyPrvCdMgmQi__cIEx1pnf4hbWtf
+cd ..
+
 cd ..
 
 echo "[9/9] Download Data"
