@@ -142,7 +142,10 @@ class ObjaverseDataset(Dataset):
             view_ids += view_ids[-(self.cfg.num_views_input - len(self.certain_input_view_ids) - num_bonus_views):]   # num_views_input always equals to 9
         view_ids += np.random.permutation(self.test_view_ids).tolist()
         view_ids = view_ids[:(self.cfg.num_views_input + self.cfg.num_views_output)]    # num_views_input always equals to 9
-
+        input_view_ids = sorted(view_ids[:self.cfg.num_views_input])
+        output_view_ids = view_ids[self.cfg.num_views_input:]
+        view_ids = input_view_ids + output_view_ids
+        
         origin_elev = self.cam_config[view_ids[0]][0]
         origin_azim = self.cam_config[view_ids[0]][1]
 
@@ -161,7 +164,6 @@ class ObjaverseDataset(Dataset):
             alpha = image[:, :, 3]
             bbox = self.find_nonzero_bbox(alpha)
             if bbox is None:
-                print(f"Fully transparent image at {item_path}")
                 bbox = (1e9, -1, 1e9, -1)
             
             ymin, ymax, xmin, xmax = bbox
@@ -229,7 +231,7 @@ class ObjaverseDataset(Dataset):
         images_input = F.interpolate(images[:self.cfg.num_views_input].clone(), size=(self.cfg.input_size, self.cfg.input_size), mode='bilinear', align_corners=False)   # [V, C, H, W]
         cam_poses_input = cam_poses[:self.cfg.num_views_input].clone()
         depths_input = F.interpolate(depths[:self.cfg.num_views_input].clone(), size=(self.cfg.splat_size, self.cfg.splat_size), mode='nearest')   # [V, 1, H, W]
-        masks_input = F.interpolate(masks[:self.cfg.num_views_input].clone().unsqueeze(1), size=(self.cfg.splat_size, self.cfg.splat_size), mode='bilinear', align_corners=False).squeeze(1)   # [V, 1, H, W]
+        masks_input = F.interpolate(masks[:self.cfg.num_views_input].clone().unsqueeze(1), size=(self.cfg.splat_size, self.cfg.splat_size), mode='bilinear', align_corners=False)   # [V, 1, H, W]
         
         # data augmentation
         # if self.type == 'train':
@@ -284,6 +286,7 @@ class ObjaverseDataset(Dataset):
         #     'input': ...,             (processed input images [V_in,9,256,256])
         #     'cam_poses_input': ...,   ([V,4,4])
         #     'depths_input': ...,      (.......)
+        #     'masks_input': ...,       (.......)
         #     'images_output': ...,     ([V_out,3,512,512])
         #     'masks_output': ...,      (.......)
         #     'cam_view_output': ...,          (colmap coordinate)

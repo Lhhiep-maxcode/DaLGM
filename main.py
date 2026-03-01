@@ -5,13 +5,30 @@ from safetensors.torch import load_file
 from core.dataset import ObjaverseDataset as Dataset
 from tqdm.auto import tqdm
 from torch.optim.lr_scheduler import LambdaLR
+from pydrive2.auth import GoogleAuth
+from pydrive2.drive import GoogleDrive
 
-
+import os
 import torch
 import tyro
 import kiui
 import wandb
 import numpy as np
+import random
+
+def set_seed(seed: int):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+
+    # Make CuDNN deterministic
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
+    print(f"Seed set to {seed}")
+
 
 def transformer_lr_lambda(step, d_model=512, warmup_steps=4000, peak_lr=1e-4):
     """
@@ -154,6 +171,7 @@ def main():
         total_abs_rel = 0
         total_sq_rel = 0
         total_delta_1 = 0
+        total_avg_kept_gaussians = 0
         # Create tqdm only on main process
         if accelerator.is_main_process:
             print(f"----------Epoch {epoch + 1}----------")
@@ -189,6 +207,7 @@ def main():
                 abs_rel = out['abs_rel']
                 sq_rel = out['sq_rel']
                 delta_1 = out['delta_1']
+                avg_kept_gaussians = out['average_kept_gaussians']
 
 
                 accelerator.backward(loss)
@@ -210,6 +229,7 @@ def main():
                 abs_rel_val = abs_rel.detach().item()
                 sq_rel_val = sq_rel.detach().item()
                 delta_1_val = delta_1.detach().item()
+                avg_kept_gaussians_val = avg_kept_gaussians.detach().item()
 
 
                 total_loss += loss_val
@@ -220,6 +240,7 @@ def main():
                 total_abs_rel += abs_rel_val
                 total_sq_rel += sq_rel_val
                 total_delta_1 += delta_1_val
+                total_avg_kept_gaussians += avg_kept_gaussians_val
 
             if accelerator.is_main_process:
                 pbar.update(1)
@@ -245,10 +266,11 @@ def main():
                         # "Train abs_rel (10 steps)": abs_rel_val,
                         # "Train sq_rel (10 steps)": sq_rel_val,
                         # "Train delta_1 (10 steps)": delta_1_val,
+                        "Train average kept gaussians (10 steps)": avg_kept_gaussians_val,
                     })
 
                 # save log images
-                if i % 500 == 0:
+                if i == 0 or i == len(train_dataloader) // 2:
                     with torch.no_grad():
                         gt_images = data['images_output'].detach().cpu().numpy() # [B, V, 3, output_size, output_size]
                         gt_images = gt_images.transpose(0, 3, 1, 4, 2).reshape(-1, gt_images.shape[1] * gt_images.shape[3], 3)    # [B * output_size, V * output_size, 3]
@@ -301,11 +323,23 @@ def main():
             total_abs_rel /= len(train_dataloader)
             total_sq_rel /= len(train_dataloader)
             total_delta_1 /= len(train_dataloader)
-            accelerator.print(f"[TRAIN INFO] Epoch: {epoch + 1} loss: {total_loss:.6f} psnr: {total_psnr:.4f} ssim: {total_ssim:.4f} lpips: {total_lpips:.4f} abs_diff: {total_abs_diff:.4f} abs_rel: {total_abs_rel:.4f} sq_rel: {total_sq_rel:.4f} delta_1: {total_delta_1:.4f}")
-            run.log({"Train loss (Epoch)": total_loss, "Train psnr (Epoch)": total_psnr, "Train ssim (Epoch)": total_ssim, "Train lpips (Epoch)": total_lpips, "Train abs_diff (Epoch)": total_abs_diff, "Train abs_rel (Epoch)": total_abs_rel, "Train sq_rel (Epoch)": total_sq_rel, "Train delta_1 (Epoch)": total_delta_1})
+            total_avg_kept_gaussians /= len(train_dataloader)
+            accelerator.print(f"[TRAIN INFO] Epoch: {epoch + 1} loss: {total_loss:.6f} avg_kept_gaussians: {total_avg_kept_gaussians:.4f} psnr: {total_psnr:.4f} ssim: {total_ssim:.4f} lpips: {total_lpips:.4f} abs_diff: {total_abs_diff:.4f} abs_rel: {total_abs_rel:.4f} sq_rel: {total_sq_rel:.4f} delta_1: {total_delta_1:.4f}")
+            run.log({
+                "Train loss (Epoch)": total_loss, 
+                "Train psnr (Epoch)": total_psnr, 
+                "Train ssim (Epoch)": total_ssim, 
+                "Train lpips (Epoch)": total_lpips, 
+                "Train abs_diff (Epoch)": total_abs_diff, 
+                "Train abs_rel (Epoch)": total_abs_rel, 
+                "Train sq_rel (Epoch)": total_sq_rel, 
+                "Train delta_1 (Epoch)": total_delta_1, 
+                "Train avg_kept_gaussians (Epoch)": total_avg_kept_gaussians
+            })
 
         accelerator.wait_for_everyone()
         accelerator.save_state(output_dir=f'{cfg.workspace}/lastest')
+
 
         # eval
         with torch.no_grad():
@@ -341,7 +375,7 @@ def main():
 
                 if accelerator.is_main_process:
                     pbar2.update(1)
-                    if i % 100 == 0:
+                    if i == 0 or i == len(test_dataloader) // 2:
                         gt_images = data['images_output'].detach().cpu().numpy()    # [B, V, 3, output_size, output_size]
                         gt_images = gt_images.transpose(0, 3, 1, 4, 2).reshape(-1, gt_images.shape[1] * gt_images.shape[3], 3)
                         kiui.utils.write_image(f'{cfg.workspace}/{epoch}_{i}_eval_gt_images.jpg', gt_images)
@@ -392,4 +426,5 @@ def main():
 
 
 if __name__ == "__main__":
+    # set_seed(42)
     main()

@@ -310,6 +310,66 @@ class LGM(nn.Module):
             'delta_1': torch.stack(delta_1_list).mean(),
         }
 
+    def gaussian_prune(self, gaussians, alpha_threshold=0.01, distance_threshold=0.02, 
+                   scale_threshold=0.01, rot_threshold=0.1, rgb_threshold=0.1):
+        # gaussians: [B, N, 14]
+        # Format: [pos(3), opacity(1), scale(3), rotation(4), rgb(3)]
+
+        pruned_gaussians = []
+        H, W = self.cfg.splat_size, self.cfg.splat_size
+        
+        for b in range(gaussians.shape[0]):
+            gaussians_b = gaussians[b]  # [N, 14]
+            gaussians_b = gaussians_b.view(-1, H, W, 14)  # [V, h, w, 14]
+            V = gaussians_b.shape[0]
+            
+            keep_mask = gaussians_b[..., 3] > alpha_threshold  # [V, h, w]
+            
+            for v in range(V):
+                v_next = (v + 1) % V
+                
+                gaussians_v = gaussians_b[v].view(-1, 14)  # [h, w, 14] -> [h*w, 14]
+                gaussians_next = gaussians_b[v_next].view(-1, 14)  # [h, w, 14] -> [h*w, 14]
+
+                pos_v = gaussians_v[..., 0:3]
+                opacity_v = gaussians_v[..., 3]
+                scale_v = gaussians_v[..., 4:7]
+                rot_v = gaussians_v[..., 7:11]
+                rgb_v = gaussians_v[..., 11:14]
+
+                pos_next = gaussians_next[..., 0:3]
+                opacity_next = gaussians_next[..., 3]
+                scale_next = gaussians_next[..., 4:7]
+                rot_next = gaussians_next[..., 7:11]
+                rgb_next = gaussians_next[..., 11:14]
+
+                # Compute pairwise distances for all attributes
+                spatial_dist = torch.norm(pos_v - pos_next, dim=1)  # [h*w]
+                scale_dist = torch.norm(scale_v - scale_next, dim=1)  # [h*w]
+                rgb_dist = torch.norm(rgb_v - rgb_next, dim=1)  # [h*w]
+                
+                # For rotation, use quaternion angular distance
+                rot_dot = torch.abs(torch.sum(rot_v * rot_next, dim=1))
+                rot_dist = 1.0 - rot_dot.clamp(max=1.0)
+
+                # Combined similarity: duplicates if ALL attributes are similar
+                is_duplicate = (
+                    (spatial_dist < distance_threshold) &
+                    (scale_dist < scale_threshold) &
+                    (rot_dist < rot_threshold) &
+                    (rgb_dist < rgb_threshold)
+                )  # [h*w]
+
+                remove_v = is_duplicate & (opacity_v < opacity_next)
+                remove_next = is_duplicate & (opacity_next <= opacity_v)
+                
+                keep_mask[v].view(-1)[remove_v] = False
+                keep_mask[v_next].view(-1)[remove_next] = False
+        
+            gaussians_b = gaussians_b[keep_mask]
+            pruned_gaussians.append(gaussians_b)
+        return pruned_gaussians
+
     def forward(self, data, lambda_mse=1, lambda_lpips=0.5, lambda_depth=0.01, lambda_grad=0.01, lambda_opacity=0.1, depth_loss_type='l1'):
         # data: output of the dataloader
         # data = {
@@ -377,10 +437,13 @@ class LGM(nn.Module):
             # disp_pred = (disp_pred - disp_median) / (disp_var + 1e-6)  # [B, V, h*w]
             depth = depth.view(B, V, 1, self.cfg.splat_size, self.cfg.splat_size)  # [B, V, 1, h, w]
 
-        results['gaussians'] = gaussians    # [B, V*h*w, 14]
+        device = gaussians.device
+        gaussians = self.gaussian_prune(gaussians)  # list of [M_b, 14], M_b is the number of Gaussians after pruning for batch b
+        results['gaussians'] = gaussians
+        results['average_kept_gaussians'] = torch.tensor(sum([g.shape[0] for g in gaussians]) / (len(gaussians) * self.cfg.splat_size * self.cfg.splat_size * V), device=device)
 
         # always use white background
-        bg_color = torch.ones(3, dtype=torch.float32, device=gaussians.device)
+        bg_color = torch.ones(3, dtype=torch.float32, device=device)
 
         # use the other views for rendering and supervision
         rendered_results = self.gs.render(gaussians, data['cam_view_output'], data['cam_view_proj_output'], data['cam_pos_output'], bg_color=bg_color)
@@ -469,8 +532,8 @@ class LGM(nn.Module):
             results['loss_depth_grad'] = loss_grad_all
         
         if lambda_opacity > 0:
-            # opacity regularization
-            loss_opacity = gaussians[..., 3:4].mean()
+            # opacity regularization (use rendered alpha since gaussians is now a list)
+            loss_opacity = pred_alphas.mean()
             loss = loss + lambda_opacity * loss_opacity
 
         results['loss'] = loss

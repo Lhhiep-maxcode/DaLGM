@@ -32,3 +32,4 @@ pymeshlab
 ninja
 wandb
 opencv-python
+PyDrive2
