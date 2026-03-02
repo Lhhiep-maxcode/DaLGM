@@ -46,7 +46,21 @@ def main():
             else:
                 accelerator.print(f'[WARN] unexpected param {k}: {v.shape}')
 
-    val_dataset = Dataset(data_path=cfg.data_path, cfg=cfg, type='val')
+    # val_dataset = Dataset(data_path=cfg.data_path, cfg=cfg, type='val')
+    # val_dataloader = torch.utils.data.DataLoader(
+    #     val_dataset,
+    #     batch_size=cfg.batch_size,
+    #     shuffle=False,
+    #     num_workers=0,
+    #     drop_last=False,
+    #     pin_memory=True
+    # )
+    val_dataset = Dataset(
+        data_path=cfg.data_path, 
+        depth1_path=cfg.depth1_path, 
+        depth2_path=cfg.depth2_path, 
+        depth3_path=cfg.depth3_path, 
+        depth4_path=cfg.depth4_path, cfg=cfg, type='val')
     val_dataloader = torch.utils.data.DataLoader(
         val_dataset,
         batch_size=cfg.batch_size,
@@ -74,6 +88,10 @@ def main():
         total_psnr = 0
         total_ssim = 0
         total_lpips = 0
+        total_abs_diff = 0
+        total_abs_rel = 0
+        total_sq_rel = 0
+        total_delta_1 = 0
         if accelerator.is_main_process:
             pbar2 = tqdm(val_dataloader, desc=f"[Evaluation]")
 
@@ -83,9 +101,17 @@ def main():
             psnr = out['psnr']
             ssim = out['ssim']
             lpips = out['lpips']
+            abs_diff = out['abs_diff']
+            abs_rel = out['abs_rel']
+            sq_rel = out['sq_rel']
+            delta_1 = out['delta_1']
             total_psnr += psnr.detach()
             total_ssim += ssim.detach()
             total_lpips += lpips.detach()
+            total_abs_diff += abs_diff.detach()
+            total_abs_rel += abs_rel.detach()
+            total_sq_rel += sq_rel.detach()
+            total_delta_1 += delta_1.detach()
 
             if accelerator.is_main_process:
                 pbar2.update(1)
@@ -105,11 +131,19 @@ def main():
         total_psnr = accelerator.gather_for_metrics(total_psnr).mean()
         total_ssim = accelerator.gather_for_metrics(total_ssim).mean()
         total_lpips = accelerator.gather_for_metrics(total_lpips).mean()
+        total_abs_diff = accelerator.gather_for_metrics(total_abs_diff).mean()
+        total_abs_rel = accelerator.gather_for_metrics(total_abs_rel).mean()
+        total_sq_rel = accelerator.gather_for_metrics(total_sq_rel).mean()
+        total_delta_1 = accelerator.gather_for_metrics(total_delta_1).mean()
         if accelerator.is_main_process:
             total_psnr /= len(val_dataloader)
             total_ssim /= len(val_dataloader)
             total_lpips /= len(val_dataloader)
-            accelerator.print(f'[EVAL] psnr: {total_psnr:.4f}, ssim: {total_ssim:.4f}, lpips: {total_lpips:.4f}')
+            total_abs_diff /= len(val_dataloader)
+            total_abs_rel /= len(val_dataloader)
+            total_sq_rel /= len(val_dataloader)
+            total_delta_1 /= len(val_dataloader)
+            accelerator.print(f'[EVAL] psnr: {total_psnr:.4f}, ssim: {total_ssim:.4f}, lpips: {total_lpips:.4f}, abs_diff: {total_abs_diff:.4f}, abs_rel: {total_abs_rel:.4f}, sq_rel: {total_sq_rel:.4f}, delta_1: {total_delta_1:.4f}')
 
 
 if __name__ == "__main__":
