@@ -400,47 +400,47 @@ class LGM(nn.Module):
 
         # predicting 3DGS representation
         gaussians = self.forward_gaussians(images)  # [B, N, 14] = [B, V*h*w, 14]
-        B, V, _, _ = data['cam_poses_input'].shape
+        B, V_in, _, _ = data['cam_poses_input'].shape
 
         if self.cfg.pixel_align:
             rays_d = []
             rays_o = []
-            cam_poses_input = data['cam_poses_input'].reshape(-1, 4, 4)  # [B, V, 4, 4] -> [B*V, 4, 4]
+            cam_poses_input = data['cam_poses_input'].reshape(-1, 4, 4)  # [B, V_in, 4, 4] -> [B*V_in, 4, 4]
             for i in range(cam_poses_input.shape[0]):
                 # get rays in world space
                 ro, rd = get_rays(cam_poses_input[i], self.cfg.splat_size, self.cfg.splat_size, self.cfg.fovy) # [h, w, 3]
                 rays_d.append(rd)
                 rays_o.append(ro)
-            rays_d = torch.stack(rays_d, dim=0)  # [B*V, h, w, 3]
-            rays_o = torch.stack(rays_o, dim=0)  # [B*V, h, w, 3]
-            rays_d = rays_d.view(B, V, self.cfg.splat_size, self.cfg.splat_size, 3) # [B, V, h, w, 3]
-            rays_o = rays_o.view(B, V, self.cfg.splat_size, self.cfg.splat_size, 3) # [B, V, h, w, 3]
+            rays_d = torch.stack(rays_d, dim=0)  # [B*V_in, h, w, 3]
+            rays_o = torch.stack(rays_o, dim=0)  # [B*V_in, h, w, 3]
+            rays_d = rays_d.view(B, V_in, self.cfg.splat_size, self.cfg.splat_size, 3) # [B, V_in, h, w, 3]
+            rays_o = rays_o.view(B, V_in, self.cfg.splat_size, self.cfg.splat_size, 3) # [B, V_in, h, w, 3]
 
-            pos = gaussians[..., 0:3]   # [B, V*h*w, 3]
-            dist = pos.mean(dim=-1, keepdim=True).sigmoid() * self.cfg.max_distance   # [B, V*h*w, 1]
-            pos = dist * rays_d.view(B, -1, 3) + rays_o.view(B, -1, 3)  # [B, V*h*w, 3]
+            pos = gaussians[..., 0:3]   # [B, V_in*h*w, 3]
+            dist = pos.mean(dim=-1, keepdim=True).sigmoid() * self.cfg.max_distance   # [B, V_in*h*w, 1]
+            pos = dist * rays_d.view(B, -1, 3) + rays_o.view(B, -1, 3)  # [B, V_in*h*w, 3]
 
-            gaussians = torch.cat([pos, gaussians[..., 3:]], dim=-1)  # [B, V*h*w, 14]
+            gaussians = torch.cat([pos, gaussians[..., 3:]], dim=-1)  # [B, V_in*h*w, 14]
 
             # get pixel-aligned depth
             cam_poses_colmap = data['cam_poses_input'].clone()  # OpenGL cam-to-world
             cam_poses_colmap[:, :, :3, 1:3] *= -1  # Convert to COLMAP cam-to-world
-            pos = pos.view(B, V, self.cfg.splat_size * self.cfg.splat_size, 3)  # [B, V, h*w, 3]
-            input_w2c = torch.inverse(cam_poses_colmap)  # [B, V, 4, 4]: world-to-COLMAP cam
-            # [B, V, h*w, 3]: convert pos of 3DGS from world coordinate to COLMAP cam coordinate
+            pos = pos.view(B, V_in, self.cfg.splat_size * self.cfg.splat_size, 3)  # [B, V_in, h*w, 3]
+            input_w2c = torch.inverse(cam_poses_colmap)  # [B, V_in, 4, 4]: world-to-COLMAP cam
+            # [B, V_in, h*w, 3]: convert pos of 3DGS from world coordinate to COLMAP cam coordinate
             pos_cam = pos @ input_w2c[:, :, :3, :3].transpose(-1, -2).contiguous() + input_w2c[:, :, :3, 3:4].transpose(-1, -2).contiguous()
             # get z-axis as depth value
-            depth = pos_cam[..., 2]  # [B, V, h*w]
-            # disp_pred = 1.0 / depth.clamp(min=1e-3)  # [B, V, h*w]
-            # disp_median = torch.median(disp_pred, dim=-1, keepdim=True)[0]  # [B, V, 1]
-            # disp_var = (disp_pred - disp_median).abs().mean(dim=-1, keepdim=True)  # [B, V, 1]
-            # disp_pred = (disp_pred - disp_median) / (disp_var + 1e-6)  # [B, V, h*w]
-            depth = depth.view(B, V, 1, self.cfg.splat_size, self.cfg.splat_size)  # [B, V, 1, h, w]
+            depth = pos_cam[..., 2]  # [B, V_in, h*w]
+            # disp_pred = 1.0 / depth.clamp(min=1e-3)  # [B, V_in, h*w]
+            # disp_median = torch.median(disp_pred, dim=-1, keepdim=True)[0]  # [B, V_in, 1]
+            # disp_var = (disp_pred - disp_median).abs().mean(dim=-1, keepdim=True)  # [B, V_in, 1]
+            # disp_pred = (disp_pred - disp_median) / (disp_var + 1e-6)  # [B, V_in, h*w]
+            depth = depth.view(B, V_in, 1, self.cfg.splat_size, self.cfg.splat_size)  # [B, V_in, 1, h, w]
 
         device = gaussians.device
         gaussians = self.gaussian_prune(gaussians)  # list of [M_b, 14], M_b is the number of Gaussians after pruning for batch b
         results['gaussians'] = gaussians
-        results['average_kept_gaussians'] = torch.tensor(sum([g.shape[0] for g in gaussians]) / (len(gaussians) * self.cfg.splat_size * self.cfg.splat_size * V), device=device)
+        results['average_kept_gaussians'] = torch.tensor(sum([g.shape[0] for g in gaussians]) / (len(gaussians) * self.cfg.splat_size * self.cfg.splat_size * V_in), device=device)
 
         # always use white background
         bg_color = torch.ones(3, dtype=torch.float32, device=device)
@@ -450,11 +450,11 @@ class LGM(nn.Module):
         
         if self.cfg.compute_surface and not self.cfg.pixel_align:
             # Convert cam_poses_input OpenGL to COLMAP format for Gaussian renderer
-            cam_poses_input_colmap = data['cam_poses_input'].clone()  # [B, V, 4, 4]
+            cam_poses_input_colmap = data['cam_poses_input'].clone()  # [B, V_in, 4, 4]
             cam_poses_input_colmap[:, :, :3, 1:3] *= -1  
             
             # Compute camera matrices for input views (same as dataset.py)
-            cam_view_input = torch.inverse(cam_poses_input_colmap).transpose(-1, -2)  # [B, V, 4, 4]
+            cam_view_input = torch.inverse(cam_poses_input_colmap).transpose(-1, -2)  # [B, V_in, 4, 4]
             
             projection_matrix = torch.zeros(4, 4, dtype=torch.float32, device=gaussians.device)
             projection_matrix[0, 0] = 1 / np.tan(0.5 * np.deg2rad(self.cfg.fovy))
@@ -463,18 +463,18 @@ class LGM(nn.Module):
             projection_matrix[3, 2] = -(self.cfg.zfar * self.cfg.znear) / (self.cfg.zfar - self.cfg.znear)
             projection_matrix[2, 3] = 1
             
-            cam_view_proj_input = cam_view_input @ projection_matrix  # [B, V, 4, 4]
-            cam_pos_input = -cam_poses_input_colmap[:, :, :3, 3]  # [B, V, 3]
+            cam_view_proj_input = cam_view_input @ projection_matrix  # [B, V_in, 4, 4]
+            cam_pos_input = -cam_poses_input_colmap[:, :, :3, 3]  # [B, V_in, 3]
             
             # Render from input views to get depth
             rendered_results_input = self.gs.render(gaussians, cam_view_input, cam_view_proj_input, cam_pos_input, bg_color=bg_color)
-        pred_images = rendered_results['image']  # [B, V, C, output_size, output_size]
-        pred_alphas = rendered_results['alpha']  # [B, V, 1, output_size, output_size]
+        pred_images = rendered_results['image']  # [B, V_out, C, output_size, output_size]
+        pred_alphas = rendered_results['alpha']  # [B, V_out, 1, output_size, output_size]
         pred_images = pred_images * pred_alphas + (1 - pred_alphas) * bg_color.view(1, 1, 3, 1, 1)
         if self.cfg.pixel_align:
-            pred_depths = depth.view(B, V, 1, self.cfg.splat_size, self.cfg.splat_size)
+            pred_depths = depth.view(B, V_in, 1, self.cfg.splat_size, self.cfg.splat_size)
         else:
-            pred_depths = rendered_results['depth']  # [B, V, 1, output_size, output_size]
+            pred_depths = rendered_results['depth']  # [B, V_out, 1, output_size, output_size]
 
         results['images_pred'] = pred_images
         results['alphas_pred'] = pred_alphas
@@ -482,12 +482,12 @@ class LGM(nn.Module):
         results['depths_pred_rasterized'] = rendered_results['depth']
         
         if self.cfg.compute_surface and 'surface_depth' in rendered_results:
-            results['surface_depth'] = rendered_results['surface_depth']  # [B, V, 1, output_size, output_size]
+            results['surface_depth'] = rendered_results['surface_depth']  # [B, V_out, 1, output_size, output_size]
         
-        gt_images = data['images_output']   # [B, V, 3, output_size, output_size], ground-truth novel views
-        gt_masks = data['masks_output']     # [B, V, 1, output_size, output_size], ground-truth masks
-        gt_depths = data['depths_input']   # [B, V, 1, splat_size, splat_size], ground-truth depths
-        gt_masks_in = data['masks_input']   # [B, V, 1, splat_size, splat_size], ground-truth masks for input views
+        gt_images = data['images_output']   # [B, V_out, 3, output_size, output_size], ground-truth novel views
+        gt_masks = data['masks_output']     # [B, V_out, 1, output_size, output_size], ground-truth masks
+        gt_depths = data['depths_input']   # [B, V_in, 1, splat_size, splat_size], ground-truth depths
+        gt_masks_in = data['masks_input']   # [B, V_in, 1, splat_size, splat_size], ground-truth masks for input views
 
         gt_images = gt_images * gt_masks + (1 - gt_masks) * bg_color.view(1, 1, 3, 1, 1)
 
@@ -504,12 +504,12 @@ class LGM(nn.Module):
 
         if lambda_depth > 0 and self.cfg.pixel_align:
             # Flatten spatial dimensions for consistent normalization
-            # disp_gt = 1.0 / gt_depths.clamp(min=1e-3)  # [B, V, 1, H, W]
-            # disp_gt = disp_gt.view(B, V, -1)  # [B, V, H*W]
-            # disp_median_gt = torch.median(disp_gt, dim=-1, keepdim=True)[0]  # [B, V, 1]
-            # disp_var_gt = (disp_gt - disp_median_gt).abs().mean(dim=-1, keepdim=True)  # [B, V, 1]
-            # disp_gt = (disp_gt - disp_median_gt) / (disp_var_gt + 1e-6)  # [B, V, H*W]
-            # disp_gt = disp_gt.view(B, V, 1, self.cfg.splat_size, self.cfg.splat_size)  # [B, V, 1, h, w]
+            # disp_gt = 1.0 / gt_depths.clamp(min=1e-3)  # [B, V_in, 1, H, W]
+            # disp_gt = disp_gt.view(B, V_in, -1)  # [B, V_in, H*W]
+            # disp_median_gt = torch.median(disp_gt, dim=-1, keepdim=True)[0]  # [B, V_in, 1]
+            # disp_var_gt = (disp_gt - disp_median_gt).abs().mean(dim=-1, keepdim=True)  # [B, V_in, 1]
+            # disp_gt = (disp_gt - disp_median_gt) / (disp_var_gt + 1e-6)  # [B, V_in, H*W]
+            # disp_gt = disp_gt.view(B, V_in, 1, self.cfg.splat_size, self.cfg.splat_size)  # [B, V_in, 1, h, w]
             
             loss_depth_all = self.depth_loss(
                 depth,
@@ -540,14 +540,14 @@ class LGM(nn.Module):
 
         # metric
         with torch.no_grad():
-            B, V, C, H, W = pred_images.shape
+            B, V_out, C, H, W = pred_images.shape
 
             # PSNR
             psnr = -10 * torch.log10(torch.mean((pred_images.detach() - gt_images) ** 2))
             results['psnr'] = psnr
             
             # SSIM
-            ssim = self.ssim_metric(pred_images.view(B * V, C, H, W), gt_images.view(B * V, C, H, W))
+            ssim = self.ssim_metric(pred_images.view(B * V_out, C, H, W), gt_images.view(B * V_out, C, H, W))
             results['ssim'] = ssim
 
             # LPIPS
@@ -563,18 +563,18 @@ class LGM(nn.Module):
                 if surface_depths_pred_input is not None:
                     # Resize surface depth to match gt_depths size
                     surface_depths_pred_resized = F.interpolate(
-                        surface_depths_pred_input.view(B * V, 1, self.cfg.output_size, self.cfg.output_size),
+                        surface_depths_pred_input.view(B * V_in, 1, self.cfg.output_size, self.cfg.output_size),
                         size=(self.cfg.splat_size, self.cfg.splat_size),
                         mode='nearest'
-                    ).view(B, V, 1, self.cfg.splat_size, self.cfg.splat_size)
+                    ).view(B, V_in, 1, self.cfg.splat_size, self.cfg.splat_size)
                     
                     pred_alphas_input = rendered_results_input['alpha']  # [B, V_in, 1, output_size, output_size]
                     pred_alphas_resized = F.interpolate(
-                        pred_alphas_input.view(B * V, 1, self.cfg.output_size, self.cfg.output_size),
+                        pred_alphas_input.view(B * V_in, 1, self.cfg.output_size, self.cfg.output_size),
                         size=(self.cfg.splat_size, self.cfg.splat_size),
                         mode='bilinear',
                         align_corners=False
-                    ).view(B, V, 1, self.cfg.splat_size, self.cfg.splat_size)
+                    ).view(B, V_in, 1, self.cfg.splat_size, self.cfg.splat_size)
                     
                     depth_metrics = self.depth_metrics(
                         surface_depths_pred_resized, 
@@ -593,11 +593,11 @@ class LGM(nn.Module):
                     results['delta_1'] = torch.tensor(0.0, device=images.device)
             elif self.cfg.pixel_align:
                 pred_alphas_resized = F.interpolate(
-                    pred_alphas.view(B * V, 1, self.cfg.output_size, self.cfg.output_size),
+                    pred_alphas.view(B * V_out, 1, self.cfg.output_size, self.cfg.output_size),
                     size=(self.cfg.splat_size, self.cfg.splat_size),
                     mode='bilinear',
                     align_corners=False
-                ).view(B, V, 1, self.cfg.splat_size, self.cfg.splat_size)
+                ).view(B, V_out, 1, self.cfg.splat_size, self.cfg.splat_size)
                 
                 depth_metrics = self.depth_metrics(
                     pred_depths, 

@@ -98,20 +98,21 @@ def main():
         for i, data in enumerate(val_dataloader):
             out = model(data)
 
-            psnr = out['psnr']
-            ssim = out['ssim']
-            lpips = out['lpips']
-            abs_diff = out['abs_diff']
-            abs_rel = out['abs_rel']
-            sq_rel = out['sq_rel']
-            delta_1 = out['delta_1']
-            total_psnr += psnr.detach()
-            total_ssim += ssim.detach()
-            total_lpips += lpips.detach()
-            total_abs_diff += abs_diff.detach()
-            total_abs_rel += abs_rel.detach()
-            total_sq_rel += sq_rel.detach()
-            total_delta_1 += delta_1.detach()
+            # Move metrics to CPU immediately to save GPU memory
+            psnr = out['psnr'].detach().cpu()
+            ssim = out['ssim'].detach().cpu()
+            lpips = out['lpips'].detach().cpu()
+            abs_diff = out['abs_diff'].detach().cpu()
+            abs_rel = out['abs_rel'].detach().cpu()
+            sq_rel = out['sq_rel'].detach().cpu()
+            delta_1 = out['delta_1'].detach().cpu()
+            total_psnr += psnr
+            total_ssim += ssim
+            total_lpips += lpips
+            total_abs_diff += abs_diff
+            total_abs_rel += abs_rel
+            total_sq_rel += sq_rel
+            total_delta_1 += delta_1
 
             if accelerator.is_main_process:
                 pbar2.update(1)
@@ -123,10 +124,22 @@ def main():
                     pred_images = out['images_pred'].detach().cpu().numpy()     # [B, V, 3, output_size, output_size]
                     pred_images = pred_images.transpose(0, 3, 1, 4, 2).reshape(-1, pred_images.shape[1] * pred_images.shape[3], 3)
                     kiui.utils.write_image(f'{cfg.workspace}/{i}_eval_pred_images.jpg', pred_images)
+            
+            # Clear large tensors from GPU memory
+            del out
+            torch.cuda.empty_cache()
 
         if accelerator.is_main_process:
             pbar2.close()
-        torch.cuda.empty_cache()
+
+        # Move totals back to GPU for gathering (accelerator expects GPU tensors)
+        total_psnr = total_psnr.to(accelerator.device)
+        total_ssim = total_ssim.to(accelerator.device)
+        total_lpips = total_lpips.to(accelerator.device)
+        total_abs_diff = total_abs_diff.to(accelerator.device)
+        total_abs_rel = total_abs_rel.to(accelerator.device)
+        total_sq_rel = total_sq_rel.to(accelerator.device)
+        total_delta_1 = total_delta_1.to(accelerator.device)
 
         total_psnr = accelerator.gather_for_metrics(total_psnr).mean()
         total_ssim = accelerator.gather_for_metrics(total_ssim).mean()
