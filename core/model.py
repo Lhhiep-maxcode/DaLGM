@@ -456,7 +456,7 @@ class LGM(nn.Module):
             # Compute camera matrices for input views (same as dataset.py)
             cam_view_input = torch.inverse(cam_poses_input_colmap).transpose(-1, -2)  # [B, V_in, 4, 4]
             
-            projection_matrix = torch.zeros(4, 4, dtype=torch.float32, device=gaussians.device)
+            projection_matrix = torch.zeros(4, 4, dtype=torch.float32, device=device)
             projection_matrix[0, 0] = 1 / np.tan(0.5 * np.deg2rad(self.cfg.fovy))
             projection_matrix[1, 1] = 1 / np.tan(0.5 * np.deg2rad(self.cfg.fovy))
             projection_matrix[2, 2] = (self.cfg.zfar + self.cfg.znear) / (self.cfg.zfar - self.cfg.znear)
