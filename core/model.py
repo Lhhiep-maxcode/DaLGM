@@ -592,17 +592,12 @@ class LGM(nn.Module):
                     results['sq_rel'] = torch.tensor(0.0, device=images.device)
                     results['delta_1'] = torch.tensor(0.0, device=images.device)
             elif self.cfg.pixel_align:
-                pred_alphas_resized = F.interpolate(
-                    pred_alphas.view(B * V_out, 1, self.cfg.output_size, self.cfg.output_size),
-                    size=(self.cfg.splat_size, self.cfg.splat_size),
-                    mode='bilinear',
-                    align_corners=False
-                ).view(B, V_out, 1, self.cfg.splat_size, self.cfg.splat_size)
-                
+                # When pixel_align=True, pred_depths are computed from input views (V_in)
+                # but pred_alphas are from output views (V_out), so we can't use them together.
                 depth_metrics = self.depth_metrics(
                     pred_depths, 
                     gt_depths, 
-                    pred_alphas_resized,
+                    None,
                     gt_masks_in
                 )
                 results['abs_diff'] = depth_metrics['abs_diff']
