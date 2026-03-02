@@ -138,7 +138,6 @@ class ObjaverseDataset(Dataset):
         
         view_ids = [random.choice(self.certain_input_view_ids[i]) for i in range(len(self.certain_input_view_ids))]
         view_ids += bonus_views
-        view_ids = [0, 16, 32, 48]
         if num_bonus_views < 4:
             view_ids += view_ids[-(self.cfg.num_views_input - len(self.certain_input_view_ids) - num_bonus_views):]   # num_views_input always equals to 9
         
@@ -151,6 +150,7 @@ class ObjaverseDataset(Dataset):
         view_ids = view_ids[:(self.cfg.num_views_input + self.cfg.num_views_output)]    # num_views_input always equals to 9
         input_view_ids = sorted(view_ids[:self.cfg.num_views_input])
         output_view_ids = view_ids[self.cfg.num_views_input:]
+        input_view_ids = [0, 16, 32, 48]
         view_ids = input_view_ids + output_view_ids
         
         origin_elev = self.cam_config[view_ids[0]][0]
