@@ -138,6 +138,7 @@ class ObjaverseDataset(Dataset):
         
         view_ids = [random.choice(self.certain_input_view_ids[i]) for i in range(len(self.certain_input_view_ids))]
         view_ids += bonus_views
+        # view_ids = [0, 16, 32, 48]
         if num_bonus_views < 4:
             view_ids += view_ids[-(self.cfg.num_views_input - len(self.certain_input_view_ids) - num_bonus_views):]   # num_views_input always equals to 9
         view_ids += np.random.permutation(self.test_view_ids).tolist()
