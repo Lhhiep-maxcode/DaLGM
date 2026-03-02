@@ -105,8 +105,8 @@ class LGM(nn.Module):
         images = images.view(B*V, C, H, W)
 
         x = self.unet(images)   # [B*5, 14, H, W]
-        x = F.interpolate(x, scale_factor=2.0, mode='nearest')  # [B*5, 14, 2*H, 2*W]
-        x = self.upsample(x)    # [B*5, 14, 2*H, 2*W]
+        # x = F.interpolate(x, scale_factor=2.0, mode='nearest')  # [B*5, 14, 2*H, 2*W]
+        # x = self.upsample(x)    # [B*5, 14, 2*H, 2*W]
         x = self.conv(x)        # [B*5, 14, 2*H, 2*W]
 
         x = x.reshape(B, self.cfg.num_views_input, 14, self.cfg.splat_size, self.cfg.splat_size)
@@ -448,7 +448,8 @@ class LGM(nn.Module):
         # use the other views for rendering and supervision
         rendered_results = self.gs.render(gaussians, data['cam_view_output'], data['cam_view_proj_output'], data['cam_pos_output'], bg_color=bg_color)
         
-        if self.cfg.compute_surface and not self.cfg.pixel_align:
+        # Render from input views for depth metrics (needed for both compute_surface and pixel_align)
+        if (self.cfg.compute_surface and not self.cfg.pixel_align) or self.cfg.pixel_align:
             # Convert cam_poses_input OpenGL to COLMAP format for Gaussian renderer
             cam_poses_input_colmap = data['cam_poses_input'].clone()  # [B, V_in, 4, 4]
             cam_poses_input_colmap[:, :, :3, 1:3] *= -1  
@@ -456,7 +457,7 @@ class LGM(nn.Module):
             # Compute camera matrices for input views (same as dataset.py)
             cam_view_input = torch.inverse(cam_poses_input_colmap).transpose(-1, -2)  # [B, V_in, 4, 4]
             
-            projection_matrix = torch.zeros(4, 4, dtype=torch.float32, device=gaussians.device)
+            projection_matrix = torch.zeros(4, 4, dtype=torch.float32, device=device)
             projection_matrix[0, 0] = 1 / np.tan(0.5 * np.deg2rad(self.cfg.fovy))
             projection_matrix[1, 1] = 1 / np.tan(0.5 * np.deg2rad(self.cfg.fovy))
             projection_matrix[2, 2] = (self.cfg.zfar + self.cfg.znear) / (self.cfg.zfar - self.cfg.znear)
@@ -466,7 +467,7 @@ class LGM(nn.Module):
             cam_view_proj_input = cam_view_input @ projection_matrix  # [B, V_in, 4, 4]
             cam_pos_input = -cam_poses_input_colmap[:, :, :3, 3]  # [B, V_in, 3]
             
-            # Render from input views to get depth
+            # Render from input views to get depth/alpha
             rendered_results_input = self.gs.render(gaussians, cam_view_input, cam_view_proj_input, cam_pos_input, bg_color=bg_color)
         pred_images = rendered_results['image']  # [B, V_out, C, output_size, output_size]
         pred_alphas = rendered_results['alpha']  # [B, V_out, 1, output_size, output_size]
@@ -561,6 +562,8 @@ class LGM(nn.Module):
             if self.cfg.compute_surface and not self.cfg.pixel_align:
                 surface_depths_pred_input = rendered_results_input.get('surface_depth', None)
                 if surface_depths_pred_input is not None:
+                    pred_alphas_input = rendered_results_input['alpha']
+                    
                     # Resize surface depth to match gt_depths size
                     surface_depths_pred_resized = F.interpolate(
                         surface_depths_pred_input.view(B * V_in, 1, self.cfg.output_size, self.cfg.output_size),
@@ -568,7 +571,6 @@ class LGM(nn.Module):
                         mode='nearest'
                     ).view(B, V_in, 1, self.cfg.splat_size, self.cfg.splat_size)
                     
-                    pred_alphas_input = rendered_results_input['alpha']  # [B, V_in, 1, output_size, output_size]
                     pred_alphas_resized = F.interpolate(
                         pred_alphas_input.view(B * V_in, 1, self.cfg.output_size, self.cfg.output_size),
                         size=(self.cfg.splat_size, self.cfg.splat_size),
@@ -592,12 +594,20 @@ class LGM(nn.Module):
                     results['sq_rel'] = torch.tensor(0.0, device=images.device)
                     results['delta_1'] = torch.tensor(0.0, device=images.device)
             elif self.cfg.pixel_align:
-                # When pixel_align=True, pred_depths are computed from input views (V_in)
-                # but pred_alphas are from output views (V_out), so we can't use them together.
+                pred_alphas_input = rendered_results_input['alpha']  # [B, V_in, 1, output_size, output_size]
+                
+                # Resize alpha from output_size to splat_size to match pred_depths
+                pred_alphas_resized = F.interpolate(
+                    pred_alphas_input.view(B * V_in, 1, self.cfg.output_size, self.cfg.output_size),
+                    size=(self.cfg.splat_size, self.cfg.splat_size),
+                    mode='bilinear',
+                    align_corners=False
+                ).view(B, V_in, 1, self.cfg.splat_size, self.cfg.splat_size)
+
                 depth_metrics = self.depth_metrics(
                     pred_depths, 
                     gt_depths, 
-                    None,
+                    pred_alphas_resized,
                     gt_masks_in
                 )
                 results['abs_diff'] = depth_metrics['abs_diff']
