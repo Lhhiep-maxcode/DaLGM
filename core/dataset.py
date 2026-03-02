@@ -141,7 +141,13 @@ class ObjaverseDataset(Dataset):
         # view_ids = [0, 16, 32, 48]
         if num_bonus_views < 4:
             view_ids += view_ids[-(self.cfg.num_views_input - len(self.certain_input_view_ids) - num_bonus_views):]   # num_views_input always equals to 9
-        view_ids += np.random.permutation(self.test_view_ids).tolist()
+        
+        # Use seeded random permutation for reproducible output views during evaluation
+        if self.type in ['val', 'test']:
+            rng = np.random.RandomState(idx)  # Seed with idx for reproducibility
+            view_ids += rng.permutation(self.test_view_ids).tolist()
+        else:
+            view_ids += np.random.permutation(self.test_view_ids).tolist()
         view_ids = view_ids[:(self.cfg.num_views_input + self.cfg.num_views_output)]    # num_views_input always equals to 9
         input_view_ids = sorted(view_ids[:self.cfg.num_views_input])
         output_view_ids = view_ids[self.cfg.num_views_input:]

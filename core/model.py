@@ -469,10 +469,6 @@ class LGM(nn.Module):
             
             # Render from input views to get depth/alpha
             rendered_results_input = self.gs.render(gaussians, cam_view_input, cam_view_proj_input, cam_pos_input, bg_color=bg_color)
-            
-            # Clear cache after rendering input views in eval mode
-            if not self.training:
-                torch.cuda.empty_cache()
         pred_images = rendered_results['image']  # [B, V_out, C, output_size, output_size]
         pred_alphas = rendered_results['alpha']  # [B, V_out, 1, output_size, output_size]
         pred_images = pred_images * pred_alphas + (1 - pred_alphas) * bg_color.view(1, 1, 3, 1, 1)
@@ -488,9 +484,6 @@ class LGM(nn.Module):
         
         if self.cfg.compute_surface and 'surface_depth' in rendered_results:
             results['surface_depth'] = rendered_results['surface_depth']  # [B, V_out, 1, output_size, output_size]
-        
-        if not self.training:
-            torch.cuda.empty_cache()
         
         gt_images = data['images_output']   # [B, V_out, 3, output_size, output_size], ground-truth novel views
         gt_masks = data['masks_output']     # [B, V_out, 1, output_size, output_size], ground-truth masks
@@ -550,51 +543,26 @@ class LGM(nn.Module):
         with torch.no_grad():
             B, V_out, C, H, W = pred_images.shape
 
-            # Move to CPU for metric calculation to save GPU memory during eval
-            if not self.training:
-                pred_images_cpu = pred_images.detach().cpu()
-                gt_images_cpu = gt_images.cpu()
-            else:
-                pred_images_cpu = pred_images
-                gt_images_cpu = gt_images
-
             # PSNR
-            psnr = -10 * torch.log10(torch.mean((pred_images_cpu - gt_images_cpu) ** 2))
+            psnr = -10 * torch.log10(torch.mean((pred_images.detach() - gt_images) ** 2))
             results['psnr'] = psnr
             
             # SSIM
-            if not self.training:
-                self.ssim_metric = self.ssim_metric.to('cpu')
-            ssim = self.ssim_metric(pred_images_cpu.view(B * V_out, C, H, W), gt_images_cpu.view(B * V_out, C, H, W))
+            ssim = self.ssim_metric(pred_images.view(B * V_out, C, H, W), gt_images.view(B * V_out, C, H, W))
             results['ssim'] = ssim
-            if not self.training:
-                self.ssim_metric = self.ssim_metric.to(device)
 
             # LPIPS
-            if not self.training:
-                self.lpips_loss = self.lpips_loss.to('cpu')
             lpips = self.lpips_loss(
-                F.interpolate(gt_images_cpu.view(-1, 3, self.cfg.output_size, self.cfg.output_size) * 2 - 1, (256, 256), mode='bilinear', align_corners=False),
-                F.interpolate(pred_images_cpu.view(-1, 3, self.cfg.output_size, self.cfg.output_size) * 2 - 1, (256, 256), mode='bilinear', align_corners=False),
+                F.interpolate(gt_images.view(-1, 3, self.cfg.output_size, self.cfg.output_size) * 2 - 1, (256, 256), mode='bilinear', align_corners=False),
+                F.interpolate(pred_images.view(-1, 3, self.cfg.output_size, self.cfg.output_size) * 2 - 1, (256, 256), mode='bilinear', align_corners=False),
             ).mean()
             results['lpips'] = lpips
-            if not self.training:
-                self.lpips_loss = self.lpips_loss.to(device)
 
             # Depth metrics
             if self.cfg.compute_surface and not self.cfg.pixel_align:
                 surface_depths_pred_input = rendered_results_input.get('surface_depth', None)
                 if surface_depths_pred_input is not None:
-                    # Move to CPU for eval to save GPU memory
-                    if not self.training:
-                        surface_depths_pred_input = surface_depths_pred_input.cpu()
-                        pred_alphas_input = rendered_results_input['alpha'].cpu()
-                        gt_depths_cpu = gt_depths.cpu()
-                        gt_masks_in_cpu = gt_masks_in.cpu()
-                    else:
-                        pred_alphas_input = rendered_results_input['alpha']
-                        gt_depths_cpu = gt_depths
-                        gt_masks_in_cpu = gt_masks_in
+                    pred_alphas_input = rendered_results_input['alpha']
                     
                     # Resize surface depth to match gt_depths size
                     surface_depths_pred_resized = F.interpolate(
@@ -612,9 +580,9 @@ class LGM(nn.Module):
                     
                     depth_metrics = self.depth_metrics(
                         surface_depths_pred_resized, 
-                        gt_depths_cpu, 
+                        gt_depths, 
                         pred_alphas_resized, 
-                        gt_masks_in_cpu
+                        gt_masks_in
                     )
                     results['abs_diff'] = depth_metrics['abs_diff']
                     results['abs_rel'] = depth_metrics['abs_rel']
@@ -626,17 +594,7 @@ class LGM(nn.Module):
                     results['sq_rel'] = torch.tensor(0.0, device=images.device)
                     results['delta_1'] = torch.tensor(0.0, device=images.device)
             elif self.cfg.pixel_align:
-                # Move to CPU for eval to save GPU memory
-                if not self.training:
-                    pred_alphas_input = rendered_results_input['alpha'].cpu()  # [B, V_in, 1, output_size, output_size]
-                    pred_depths_cpu = pred_depths.cpu()
-                    gt_depths_cpu = gt_depths.cpu()
-                    gt_masks_in_cpu = gt_masks_in.cpu()
-                else:
-                    pred_alphas_input = rendered_results_input['alpha']  # [B, V_in, 1, output_size, output_size]
-                    pred_depths_cpu = pred_depths
-                    gt_depths_cpu = gt_depths
-                    gt_masks_in_cpu = gt_masks_in
+                pred_alphas_input = rendered_results_input['alpha']  # [B, V_in, 1, output_size, output_size]
                 
                 # Resize alpha from output_size to splat_size to match pred_depths
                 pred_alphas_resized = F.interpolate(
@@ -647,10 +605,10 @@ class LGM(nn.Module):
                 ).view(B, V_in, 1, self.cfg.splat_size, self.cfg.splat_size)
 
                 depth_metrics = self.depth_metrics(
-                    pred_depths_cpu, 
-                    gt_depths_cpu, 
+                    pred_depths, 
+                    gt_depths, 
                     pred_alphas_resized,
-                    gt_masks_in_cpu
+                    gt_masks_in
                 )
                 results['abs_diff'] = depth_metrics['abs_diff']
                 results['abs_rel'] = depth_metrics['abs_rel']
