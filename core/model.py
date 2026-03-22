@@ -316,7 +316,8 @@ class LGM(nn.Module):
         # Format: [pos(3), opacity(1), scale(3), rotation(4), rgb(3)]
 
         pruned_gaussians = []
-        H, W = self.cfg.splat_size, self.cfg.splat_size
+        actual_splat = int(round((gaussians.shape[1] / self.cfg.num_views_input) ** 0.5))
+        H, W = actual_splat, actual_splat
         
         for b in range(gaussians.shape[0]):
             gaussians_b = gaussians[b]  # [N, 14]
