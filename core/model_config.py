@@ -18,7 +18,7 @@ class Options:
     up_channels: Tuple[int, ...] = (1024, 1024, 512, 256)
     up_attention: Tuple[bool, ...] = (True, True, True, False)
     # Unet output size, dependent on the input_size and U-Net structure!
-    splat_size: int = 80
+    splat_size: int = 160
     # gaussian render size
     output_size: int = 512
 
