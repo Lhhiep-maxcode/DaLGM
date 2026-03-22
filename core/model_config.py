@@ -7,7 +7,7 @@ class Options:
     ### MODEL
     # Unet image input size
     input_size: int = 160
-    pixel_align: bool = False
+    pixel_align: bool = True
     self_supervised: bool = False
     compute_surface = True
     max_distance: float = 2.5
