@@ -146,12 +146,12 @@ config_defaults['small'] = Options(
 
 config_doc['big'] = 'big model with higher resolution Gaussians'
 config_defaults['big'] = Options(
-    input_size=256,
+    input_size=160,
     down_channels=(64, 128, 256, 512, 1024, 1024),
     down_attention=(False, False, False, True, True, True),
     up_channels=(1024, 1024, 512, 256, 128), # one more decoder
     up_attention=(True, True, True, False, False),
-    splat_size=128,
+    splat_size=160,
     output_size=512, # render & supervise Gaussians at a higher resolution.
     batch_size=8,
     gradient_accumulation_steps=1,
