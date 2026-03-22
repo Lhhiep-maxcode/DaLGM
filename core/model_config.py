@@ -18,7 +18,7 @@ class Options:
     up_channels: Tuple[int, ...] = (1024, 1024, 512, 256)
     up_attention: Tuple[bool, ...] = (True, True, True, False)
     # Unet output size, dependent on the input_size and U-Net structure!
-    splat_size: int = 160
+    splat_size: int = 80
     # gaussian render size
     output_size: int = 512
 
@@ -151,7 +151,7 @@ config_defaults['big'] = Options(
     down_attention=(False, False, False, True, True, True),
     up_channels=(1024, 1024, 512, 256, 128), # one more decoder
     up_attention=(True, True, True, False, False),
-    splat_size=128,
+    splat_size=256,
     output_size=512, # render & supervise Gaussians at a higher resolution.
     batch_size=8,
     gradient_accumulation_steps=1,
