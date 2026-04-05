@@ -180,7 +180,7 @@ class ObjaverseDataset(Dataset):
             global_xmax = max(global_xmax, xmax)
 
             try:
-                depth = torch.from_numpy(np.load(os.path.join(item_depth_path, 'depth', f'{view_id:03d}.npz'))['data'])  # shape: [512, 512]
+                depth = torch.from_numpy(np.load(os.path.join(item_depth_path, 'depth', f'{view_id:03d}.npz'))['depth'])  # shape: [512, 512]
             except:
                 depth = torch.from_numpy(np.load(os.path.join(item_depth_path, 'depth', f'{view_id:03d}.npy')))  # shape: [512, 512]
             depth = depth.unsqueeze(0)  # [1, H, W]
