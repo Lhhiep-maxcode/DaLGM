@@ -46,26 +46,24 @@ class ObjaverseDataset(Dataset):
         self.cfg = cfg
         self.type = type if type in ['train', 'test', 'val'] else 'train'
         
+        # depth roots
         self.subfolder_depth = []
-        if depth1_path is not None:
-            self.subfolder_depth.extend([os.path.join(depth1_path, sub) for sub in os.listdir(depth1_path) 
-                            if os.path.isdir(os.path.join(depth1_path, sub))])
-        if depth2_path is not None:
-            self.subfolder_depth.extend([os.path.join(depth2_path, sub) for sub in os.listdir(depth2_path) 
-                            if os.path.isdir(os.path.join(depth2_path, sub))])
-        if depth3_path is not None:
-            self.subfolder_depth.extend([os.path.join(depth3_path, sub) for sub in os.listdir(depth3_path) 
-                            if os.path.isdir(os.path.join(depth3_path, sub))])
-        if depth4_path is not None:
-            self.subfolder_depth.extend([os.path.join(depth4_path, sub) for sub in os.listdir(depth4_path) 
-                          if os.path.isdir(os.path.join(depth4_path, sub))])
-        
-        self.items_depth = []
+        for root in [depth1_path, depth2_path, depth3_path, depth4_path]:
+            if root is not None and os.path.isdir(root):
+                self.subfolder_depth.extend(
+                    [
+                        os.path.join(root, sub)
+                        for sub in sorted(os.listdir(root))
+                        if os.path.isdir(os.path.join(root, sub))
+                    ]
+                )
 
-        for sub in self.subfolder_depth:
-            for item in os.listdir(sub):
+        self.items_depth = []
+        for sub in sorted(self.subfolder_depth):
+            for item in sorted(os.listdir(sub)):
                 item_path = os.path.join(sub, item)
-                self.items_depth.append(item_path)
+                if os.path.isdir(os.path.join(item_path, "depth")):
+                    self.items_depth.append(item_path)
 
         # naive split
         if self.type == 'val':
