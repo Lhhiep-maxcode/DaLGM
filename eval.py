@@ -6,7 +6,6 @@ from core.dataset import ObjaverseDataset as Dataset
 from tqdm.auto import tqdm
 from torch.optim.lr_scheduler import LambdaLR
 
-
 import torch
 import tyro
 import kiui
@@ -46,21 +45,17 @@ def main():
             else:
                 accelerator.print(f'[WARN] unexpected param {k}: {v.shape}')
 
-    # val_dataset = Dataset(data_path=cfg.data_path, cfg=cfg, type='val')
-    # val_dataloader = torch.utils.data.DataLoader(
-    #     val_dataset,
-    #     batch_size=cfg.batch_size,
-    #     shuffle=False,
-    #     num_workers=0,
-    #     drop_last=False,
-    #     pin_memory=True
-    # )
     val_dataset = Dataset(
-        data_path=cfg.data_path, 
-        depth1_path=cfg.depth1_path, 
-        depth2_path=cfg.depth2_path, 
-        depth3_path=cfg.depth3_path, 
-        depth4_path=cfg.depth4_path, cfg=cfg, type='val')
+        data_path=cfg.data_path,
+        depth1_path=cfg.depth1_path,
+        depth2_path=cfg.depth2_path,
+        depth3_path=cfg.depth3_path,
+        depth4_path=cfg.depth4_path,
+        eval_path=cfg.eval_path,
+        cfg=cfg,
+        type="val",
+    )
+
     val_dataloader = torch.utils.data.DataLoader(
         val_dataset,
         batch_size=cfg.batch_size,
@@ -77,7 +72,6 @@ def main():
 
     if not cfg.fine_tune and cfg.resume is not None:
         # NOTE: cfg.resume (dir type) must be saved by accelerator.save_state()
-        # Continue training by loading all state of optimizer, model, scheduler
         accelerator.load_state(cfg.resume, strict=False)
 
     if accelerator.is_main_process:
