@@ -102,7 +102,7 @@ class ObjaverseDataset(Dataset):
         return len(self.items_depth)
     
     @staticmethod
-    def find_nonzero_bbox(self, alpha_channel):
+    def find_nonzero_bbox(alpha_channel):
         """Find bounding box (ymin, ymax, xmin, xmax) where alpha > 0."""
         ys, xs = np.where(alpha_channel > 0.000001)
         if len(xs) == 0 or len(ys) == 0:  # Fully transparent
