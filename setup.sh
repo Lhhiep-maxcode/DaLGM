@@ -54,6 +54,7 @@ cd ..
 
 mkdir -p best_phase1
 cd best_phase1
+pip install gdown
 gdown 1t1HkFyPrvCdMgmQi__cIEx1pnf4hbWtf
 cd ..
 
