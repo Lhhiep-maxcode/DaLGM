@@ -76,6 +76,8 @@ class Options:
     # depth loss weight
     lambda_depth: float = 0.01
     depth_loss_type: Literal['l1', 'l2', 'huber', 'berhu', 'scale_invariant'] = 'l1'
+    lambda_depth_rank: float = 0.1
+    depth_rank_K: int = 8
     lambda_grad: float = 0.01
     lambda_opacity: float = 0.1
     # gradient clip
