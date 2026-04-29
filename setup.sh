@@ -12,9 +12,8 @@ REPO_BRANCH=adaptive-LGM-with-depth
 MODEL_URL=https://huggingface.co/Hiepppp/LGM/resolve/main/model_fp16_fixrot.safetensors
 # ------------------------
 
-echo "[1/9] Install PyTorch + TorchVision + TorchAudio"
-pip install torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0 \
-    --index-url $TORCH_INDEX_URL
+echo "[1/9] Install PyTorch + TorchVision"
+pip install torch torchvision --index-url $TORCH_INDEX_URL
 
 echo "[2/9] Clone LGM-from-sratch repository"
 
