@@ -686,7 +686,7 @@ class LGM(nn.Module):
                 None,
                 gt_masks_in,
                 loss_type=depth_loss_type,
-                lambda_rank=self.cfg.lambda_depth_rank,
+                lambda_rank=self.cfg.lambda_depth_rank/self.cfg.lambda_depth,
                 K=self.cfg.depth_rank_K,
             )
             loss = loss + lambda_depth * (loss_depth_all)
