@@ -438,9 +438,9 @@ class LGM(nn.Module):
             depth = depth.view(B, V_in, 1, self.cfg.splat_size, self.cfg.splat_size)  # [B, V_in, 1, h, w]
 
         device = gaussians.device
-        gaussians = self.gaussian_prune(gaussians)  # list of [M_b, 14], M_b is the number of Gaussians after pruning for batch b
+        # gaussians = self.gaussian_prune(gaussians)  # list of [M_b, 14], M_b is the number of Gaussians after pruning for batch b
         results['gaussians'] = gaussians
-        results['average_kept_gaussians'] = torch.tensor(sum([g.shape[0] for g in gaussians]) / (len(gaussians) * self.cfg.splat_size * self.cfg.splat_size * V_in), device=device)
+        # results['average_kept_gaussians'] = torch.tensor(sum([g.shape[0] for g in gaussians]) / (len(gaussians) * self.cfg.splat_size * self.cfg.splat_size * V_in), device=device)
 
         # always use white background
         bg_color = torch.ones(3, dtype=torch.float32, device=device)
