@@ -98,7 +98,7 @@ class MeshEvalConfig:
     zfar: float = 2.5
 
     depth_source: str = "eval"  # eval | input | none
-    save_preview_every: int = 10
+    save_preview_every: int = 1
     preview_only: bool = False
 
     mesh_scale: float = 1.0
@@ -163,7 +163,7 @@ def parse_args() -> MeshEvalConfig:
     p.add_argument("--zfar", type=float, default=2.5)
     p.add_argument("--depth-source", choices=["eval", "input", "none"], default="eval")
 
-    p.add_argument("--save-preview-every", type=int, default=10)
+    p.add_argument("--save-preview-every", type=int, default=1)
     p.add_argument("--preview-only", action="store_true")
 
     p.add_argument("--mesh-scale", type=float, default=1.0)
