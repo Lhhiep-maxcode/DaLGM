@@ -131,6 +131,12 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--uv-iters", type=int, default=512)
     p.add_argument("--texture-resolution", type=int, default=1024)
     p.add_argument("--uv-padding", type=int, default=2)
+    p.add_argument("--max-ply-points", "--convert-max-ply-points", dest="convert_max_ply_points", type=int, default=None,
+                   help="Passed to converter: skip PLY files with more than this many points/Gaussians.")
+    p.add_argument("--target-glbs", "--convert-target-glbs", "--max-glbs", dest="target_glbs", type=int, default=None,
+                   help="Passed to converter: stop when this many usable GLB files exist or have been converted.")
+    p.add_argument("--convert-log-name", default="lgm_convert_manifest.csv",
+                   help="Passed to converter: CSV log filename written under outdir/meshes.")
     p.add_argument("--overwrite-glb", action="store_true")
 
     return p.parse_args()
@@ -312,6 +318,12 @@ def run_converter(args: argparse.Namespace, cfg, ply_root: str) -> None:
         cmd.append("--pixel-align")
     else:
         cmd.append("--no-pixel-align")
+    if args.convert_max_ply_points is not None:
+        cmd.extend(["--max-ply-points", str(args.convert_max_ply_points)])
+    if args.target_glbs is not None:
+        cmd.extend(["--target-glbs", str(args.target_glbs)])
+    if args.convert_log_name:
+        cmd.extend(["--convert-log-name", str(args.convert_log_name)])
     if args.overwrite_glb:
         cmd.append("--overwrite")
 

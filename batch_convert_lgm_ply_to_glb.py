@@ -16,6 +16,7 @@ python batch_convert_lgm_ply_to_glb.py \
 
 import argparse
 import copy
+import csv
 import importlib.util
 import os
 import random
@@ -71,7 +72,13 @@ def parse_args() -> argparse.Namespace:
 
     p.add_argument("--object-start", type=int, default=None)
     p.add_argument("--object-end", type=int, default=None)
-    p.add_argument("--max-objects", type=int, default=None)
+    p.add_argument("--max-objects", type=int, default=None, help="Maximum number of PLY candidates to scan/try converting.")
+    p.add_argument("--max-ply-points", "--max-points", dest="max_ply_points", type=int, default=None,
+                   help="Skip a PLY before conversion if its vertex/Gaussian count is larger than this value.")
+    p.add_argument("--target-glbs", "--max-glbs", dest="target_glbs", type=int, default=None,
+                   help="Stop once this many usable GLB files exist or have been created successfully.")
+    p.add_argument("--convert-log-name", default="lgm_convert_manifest.csv",
+                   help="CSV log written under --ply-root with per-PLY convert status.")
     p.add_argument("--overwrite", action="store_true")
     p.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     p.add_argument("--seed", type=int, default=42)
@@ -131,6 +138,35 @@ def load_converter_class(convert_script: str):
     return module.__dict__["Converter"]
 
 
+def count_ply_vertices(path: str) -> Optional[int]:
+    """Read only the PLY header and return the vertex count.
+
+    This is much cheaper than GaussianRenderer.load_ply(), and lets us skip
+    large Gaussian clouds before Converter(cfg).cuda() allocates GPU resources.
+    """
+    with open(path, "rb") as f:
+        for raw in f:
+            line = raw.decode("ascii", errors="ignore").strip()
+            if line.startswith("element vertex"):
+                parts = line.split()
+                if len(parts) >= 3:
+                    return int(parts[2])
+            if line == "end_header":
+                break
+    return None
+
+
+def write_convert_log(path: str, rows: list[dict]) -> None:
+    if not rows:
+        return
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    fieldnames = ["ply_path", "glb_path", "point_count", "status", "error"]
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+
+
 def discover_plys(args: argparse.Namespace) -> list[str]:
     if args.manifest is not None:
         import pandas as pd
@@ -165,30 +201,94 @@ def main() -> None:
     if not plys:
         raise RuntimeError(f"No .ply files found under {args.ply_root}")
 
-    print(f"[INFO] converting {len(plys)} PLY files to GLB")
+    convert_log_path = os.path.join(args.ply_root, args.convert_log_name)
+    rows: list[dict] = []
+    success_glbs = 0
+    skipped_big = 0
+    errors = 0
+
+    print(f"[INFO] scanning {len(plys)} PLY candidates")
+    if args.max_ply_points is not None:
+        print(f"[INFO] skip PLY if point_count > {args.max_ply_points}")
+    if args.target_glbs is not None:
+        print(f"[INFO] stop when usable GLB count reaches {args.target_glbs}")
+
     for ply_path in tqdm(plys, desc="PLY -> GLB"):
+        if args.target_glbs is not None and success_glbs >= args.target_glbs:
+            print(f"[INFO] reached target_glbs={args.target_glbs}; stopping conversion loop.")
+            break
+
         glb_path = os.path.splitext(ply_path)[0] + ".glb"
+        point_count = count_ply_vertices(ply_path)
+
+        if args.max_ply_points is not None and point_count is not None and point_count > args.max_ply_points:
+            skipped_big += 1
+            print(f"[SKIP_BIG] {ply_path} point_count={point_count} > {args.max_ply_points}")
+            rows.append({
+                "ply_path": ply_path,
+                "glb_path": glb_path,
+                "point_count": point_count,
+                "status": "skipped_too_many_points",
+                "error": "",
+            })
+            write_convert_log(convert_log_path, rows)
+            continue
+
         if os.path.exists(glb_path) and not args.overwrite:
-            print("[SKIP]", glb_path)
+            success_glbs += 1
+            print(f"[SKIP_EXISTING] {glb_path} ({success_glbs} usable GLB)")
+            rows.append({
+                "ply_path": ply_path,
+                "glb_path": glb_path,
+                "point_count": point_count if point_count is not None else "",
+                "status": "skipped_existing_glb",
+                "error": "",
+            })
+            write_convert_log(convert_log_path, rows)
             continue
 
         cfg.test_path = ply_path
+        converter = None
         try:
             converter = Converter(cfg).cuda()
             converter.fit_nerf(iters=args.nerf_iters, resolution=args.nerf_resolution)
             converter.fit_mesh(iters=args.mesh_iters, resolution=args.mesh_resolution, decimate_target=args.mesh_decimate_target)
             converter.fit_mesh_uv(iters=args.uv_iters, resolution=args.mesh_resolution, texture_resolution=args.texture_resolution, padding=args.uv_padding)
             converter.export_mesh(glb_path)
-            print("[OK]", glb_path)
+            success_glbs += 1
+            print(f"[OK] {glb_path} ({success_glbs} usable GLB)")
+            rows.append({
+                "ply_path": ply_path,
+                "glb_path": glb_path,
+                "point_count": point_count if point_count is not None else "",
+                "status": "converted",
+                "error": "",
+            })
         except Exception as exc:
+            errors += 1
             print(f"[ERROR] {ply_path}: {repr(exc)}")
+            rows.append({
+                "ply_path": ply_path,
+                "glb_path": glb_path,
+                "point_count": point_count if point_count is not None else "",
+                "status": "error",
+                "error": repr(exc),
+            })
         finally:
             # Best effort cleanup between objects.
             try:
                 del converter
             except Exception:
                 pass
-            torch.cuda.empty_cache()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            write_convert_log(convert_log_path, rows)
+
+    print("[INFO] conversion summary:")
+    print(f"  usable_glbs={success_glbs}")
+    print(f"  skipped_too_many_points={skipped_big}")
+    print(f"  errors={errors}")
+    print(f"  log={convert_log_path}")
 
 
 if __name__ == "__main__":
