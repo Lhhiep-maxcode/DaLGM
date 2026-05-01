@@ -681,9 +681,23 @@ def sample_surface_points(mesh: trimesh.Trimesh, count: int, seed: Optional[int]
             np.random.set_state(state)
     return np.asarray(points, dtype=np.float32)
 
+def normalize_mesh_to_unit_bbox(mesh: trimesh.Trimesh) -> trimesh.Trimesh:
+    mesh = mesh.copy()
+    v = np.asarray(mesh.vertices, dtype=np.float32)
+    vmin = v.min(axis=0)
+    vmax = v.max(axis=0)
+    center = (vmin + vmax) * 0.5
+    scale = float((vmax - vmin).max())
+    if scale > 1e-8:
+        mesh.vertices = (v - center) * (2.0 / scale)
+    return mesh
 
 def compute_mesh_metrics(pred_mesh: trimesh.Trimesh, gt_mesh_path: str, cfg: MeshEvalConfig):
     gt_mesh = load_mesh_any(gt_mesh_path)
+
+    pred_mesh = normalize_mesh_to_unit_bbox(pred_mesh)
+    gt_mesh = normalize_mesh_to_unit_bbox(gt_mesh)
+    
     pred_points = sample_surface_points(pred_mesh, cfg.mesh_num_samples, cfg.mesh_sample_seed)
     gt_points = sample_surface_points(gt_mesh, cfg.mesh_num_samples, None if cfg.mesh_sample_seed is None else cfg.mesh_sample_seed + 1)
     tree_gt = cKDTree(gt_points)
