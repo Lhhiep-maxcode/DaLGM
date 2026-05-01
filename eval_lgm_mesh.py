@@ -171,7 +171,9 @@ def parse_args() -> MeshEvalConfig:
     p.add_argument("--mesh-rot-y-deg", type=float, default=0.0)
     p.add_argument("--mesh-rot-z-deg", type=float, default=0.0)
     p.add_argument("--mesh-translation", type=float, nargs=3, default=(0.0, 0.0, 0.0))
-    p.add_argument("--flip-uv-y", action="store_true")
+    p.add_argument("--flip-uv-y", dest="flip_uv_y", action="store_true")
+    p.add_argument("--no-flip-uv-y", dest="flip_uv_y", action="store_false")
+    p.set_defaults(flip_uv_y=True)
 
     p.add_argument("--mesh-num-samples", type=int, default=100_000)
     p.add_argument("--mesh-sample-seed", type=int, default=42)
