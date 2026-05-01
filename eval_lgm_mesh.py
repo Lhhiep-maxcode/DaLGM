@@ -81,6 +81,8 @@ class MeshEvalConfig:
     object_start: Optional[int] = None
     object_end: Optional[int] = None
     max_objects: Optional[int] = None
+    object_list: Optional[str] = None
+    allow_missing_object_list: bool = False
 
     input_size: int = 256
     splat_size: int = 128
@@ -144,6 +146,10 @@ def parse_args() -> MeshEvalConfig:
     p.add_argument("--object-start", type=int, default=None)
     p.add_argument("--object-end", type=int, default=None)
     p.add_argument("--max-objects", type=int, default=None)
+    p.add_argument("--object-list", default=None,
+                   help="Optional CSV/text file containing fixed benchmark object IDs. Eval will run only these objects.")
+    p.add_argument("--allow-missing-object-list", action="store_true",
+                   help="If set, skip benchmark objects that have no predicted GLB. Default is strict: raise an error if any are missing.")
 
     p.add_argument("--input-size", type=int, default=256)
     p.add_argument("--splat-size", type=int, default=128)
@@ -189,6 +195,7 @@ def parse_args() -> MeshEvalConfig:
     cfg.eval_depth_path = none_if_text(cfg.eval_depth_path)
     cfg.gt_mesh_path = none_if_text(cfg.gt_mesh_path)
     cfg.resume_csv = none_if_text(cfg.resume_csv)
+    cfg.object_list = none_if_text(cfg.object_list)
     cfg.mesh_translation = tuple(float(x) for x in cfg.mesh_translation)
     cfg.mesh_fscore_thresholds = tuple(float(x) for x in cfg.mesh_fscore_thresholds)
     return cfg
@@ -294,6 +301,49 @@ def get_input_camera_setup(cfg: MeshEvalConfig) -> tuple[list[int], list[tuple[f
     return view_ids[: cfg.num_views_input], camera_params[: cfg.num_views_input]
 
 
+def load_object_list(path: Optional[str]) -> Optional[set[str]]:
+    if path is None or str(path).strip().lower() in {"", "none", "null"}:
+        return None
+
+    allowed: set[str] = set()
+    with open(path, "r", encoding="utf-8") as f:
+        sample = f.read(4096)
+        f.seek(0)
+
+        if "," in sample or "object_id" in sample:
+            reader = csv.DictReader(f)
+            for row in reader:
+                oid = str(row.get("object_id", "")).strip()
+                archive = str(row.get("archive_name", "")).strip()
+                item = str(row.get("item_name", "")).strip()
+                mesh_path = str(row.get("glb_path", "")).strip() or str(row.get("ply_path", "")).strip()
+
+                if not oid and archive and item:
+                    oid = f"{archive}/{item}"
+                if not oid and mesh_path:
+                    stem = os.path.splitext(os.path.basename(mesh_path))[0]
+                    parent = os.path.basename(os.path.dirname(mesh_path))
+                    oid = f"{parent}/{stem}" if parent else stem
+
+                if oid:
+                    allowed.add(oid)
+                    allowed.add(oid.split("/")[-1])
+        else:
+            for line in f:
+                oid = line.strip()
+                if oid:
+                    allowed.add(oid)
+                    allowed.add(oid.split("/")[-1])
+
+    return allowed
+
+
+def is_allowed_object(object_id: str, allowed: Optional[set[str]]) -> bool:
+    if allowed is None:
+        return True
+    return object_id in allowed or object_id.split("/")[-1] in allowed
+
+
 def build_glb_index(root: Optional[str]) -> dict[str, str]:
     index: dict[str, str] = {}
     if root is None:
@@ -301,7 +351,9 @@ def build_glb_index(root: Optional[str]) -> dict[str, str]:
     for cur, dirs, files in os.walk(root):
         dirs.sort()
         for fname in sorted(files):
-            if not fname.lower().endswith((".glb", ".obj", ".ply")):
+            # Predicted LGM Gaussian .ply files are not triangle meshes.
+            # Only index GLB here so eval never accidentally loads a raw Gaussian PLY.
+            if not fname.lower().endswith(".glb"):
                 continue
             full = os.path.join(cur, fname)
             stem = os.path.splitext(fname)[0]
@@ -360,9 +412,43 @@ class LGMMeshEvalDataset(torch.utils.data.Dataset):
         if cfg.max_objects is not None:
             items = items[: cfg.max_objects]
 
-        self.items = items
+        allowed = load_object_list(cfg.object_list)
+        if allowed is not None:
+            before = len(items)
+            items = [
+                (archive, item, item_path)
+                for archive, item, item_path in items
+                if is_allowed_object(f"{archive}/{item}", allowed)
+            ]
+            print(f"[dataset] object-list filter: {before} -> {len(items)} objects")
+
         self.mesh_index = build_glb_index(cfg.mesh_path)
         self.gt_mesh_index = build_glb_index(cfg.gt_mesh_path)
+
+        if allowed is not None and not cfg.allow_missing_object_list:
+            missing = [
+                f"{archive}/{item}"
+                for archive, item, _ in items
+                if f"{archive}/{item}" not in self.mesh_index and item not in self.mesh_index
+            ]
+            if missing:
+                preview = ", ".join(missing[:10])
+                raise FileNotFoundError(
+                    f"{len(missing)} benchmark objects have no predicted GLB under {cfg.mesh_path}. "
+                    f"First missing: {preview}. "
+                    "This usually means export/convert failed for this checkpoint; rerun conversion or pass --allow-missing-object-list to skip them."
+                )
+
+        if allowed is not None and cfg.allow_missing_object_list:
+            before = len(items)
+            items = [
+                (archive, item, item_path)
+                for archive, item, item_path in items
+                if f"{archive}/{item}" in self.mesh_index or item in self.mesh_index
+            ]
+            print(f"[dataset] existing-GLB filter: {before} -> {len(items)} objects")
+
+        self.items = items
         print(f"[dataset] objects={len(self.items)}, predicted_meshes_indexed={len(self.mesh_index)}, gt_meshes_indexed={len(self.gt_mesh_index)}")
 
     def __len__(self):
