@@ -10,6 +10,7 @@ nohup accelerate launch --config_file accelerate_configs/gpu2.yaml main.py big \
     --lambda_lpips_start 1.0 --lambda_lpips_end 1.0 \
     --num_workers 4 --batch_size 6 --mixed_precision fp16 --input_size 160 --splat_size 160 --pixel_align \
     --output_size 512 --num_epochs 50 --train_size 0.8 --num_views_input 9 --num_views_output 9 \
+    --alpha_threshold 0.004 --distance_threshold -1 --scale_threshold -1 --rot_threshold -1 --rgb_threshold -1 \
     --lr 1e-4 --gradient_accumulation_steps 4 --warmup_steps 10000 \
     --wandb_project_name LGM_4001 --wandb_experiment_id None \
     --wandb_experiment_name adaptive_LGM-with-depthlossL1-no_grad-pruning \

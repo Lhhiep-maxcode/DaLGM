@@ -421,9 +421,6 @@ class LGM(nn.Module):
         scale_threshold=0.01,
         rot_threshold=0.1,
         rgb_threshold=0.1,
-        use_scale=True,
-        use_rot=True,
-        use_rgb=True,
     ):
         """
         Grid/voxel clustering in attribute space.
@@ -437,6 +434,11 @@ class LGM(nn.Module):
         flat = gaussians.reshape(B * N, 14)  # keeps autograd graph
         batch_ids = torch.arange(B, device=device, dtype=torch.long).repeat_interleave(N) # [0, 0, 0, ..., 1, 1, 1, ..., B-1, B-1, ...]
 
+        use_distance = distance_threshold > 0
+        use_scale = scale_threshold > 0
+        use_rot = rot_threshold > 0
+        use_rgb = rgb_threshold > 0
+
         def _quantize(x: torch.Tensor, step: float) -> torch.Tensor:
             step = float(max(step, 1e-8))
             return torch.round(x / step).to(torch.int32)
@@ -444,60 +446,64 @@ class LGM(nn.Module):
         with torch.no_grad():
             valid = flat[:, 3] > alpha_threshold  # opacity prefilter
             if not valid.any():
-                return [gaussians[b, :0] for b in range(B)]
+                keep_mask = torch.zeros((B, N), dtype=torch.bool, device=device)
+            elif not (use_distance or use_scale or use_rot or use_rgb):
+                keep_mask = valid.view(B, N)  # opacity-only
+            else:
+                g = flat[valid].detach()                   # [M, 14]
+                b = batch_ids[valid]                       # [M]
+                orig_idx = torch.where(valid)[0]           # index in [B*N]
 
-            g = flat[valid].detach()                   # [M, 14]
-            b = batch_ids[valid]                       # [M]
-            orig_idx = torch.where(valid)[0]           # index in [B*N]
+                pos = g[:, 0:3] # [M, 3]
+                opa = g[:, 3]   # [M]
+                scale = g[:, 4:7]   # [M, 3]
+                rot = g[:, 7:11]    # [M, 4]
+                rgb = g[:, 11:14]   # [M, 3]
 
-            pos = g[:, 0:3] # [M, 3]
-            opa = g[:, 3]   # [M]
-            scale = g[:, 4:7]   # [M, 3]
-            rot = g[:, 7:11]    # [M, 4]
-            rgb = g[:, 11:14]   # [M, 3]
+                # Quaternion canonicalization: q and -q represent same rotation
+                max_abs_idx = rot.abs().argmax(dim=1, keepdim=True)
+                sign = torch.gather(rot, 1, max_abs_idx).sign()
+                sign = torch.where(sign == 0, torch.ones_like(sign), sign)
+                rot = rot * sign
 
-            # Quaternion canonicalization: q and -q represent same rotation
-            max_abs_idx = rot.abs().argmax(dim=1, keepdim=True)
-            sign = torch.gather(rot, 1, max_abs_idx).sign()
-            sign = torch.where(sign == 0, torch.ones_like(sign), sign)
-            rot = rot * sign
+                # Build integer grid key in attribute space
+                # row1: [0 | 2,1,50]
+                # row2: [0 | 2,0,50]
+                # row3: [1 | -1,1,50]
+                key_parts = [b[:, None].to(torch.int32)]
+                if use_distance:
+                    key_parts.append(_quantize(pos, distance_threshold))
+                if use_scale:
+                    key_parts.append(_quantize(scale, scale_threshold))
+                if use_rot:
+                    key_parts.append(_quantize(rot, rot_threshold))
+                if use_rgb:
+                    key_parts.append(_quantize(rgb, rgb_threshold))
 
-            # Build integer grid key in attribute space
-            # row1: [0 | 2,1,50]
-            # row2: [0 | 2,0,50]
-            # row3: [1 | -1,1,50]
-            key_parts = [b[:, None].to(torch.int32), _quantize(pos, distance_threshold)]    # [M, 1], [M, 3]
-            if use_scale:
-                key_parts.append(_quantize(scale, scale_threshold))
-            if use_rot:
-                key_parts.append(_quantize(rot, rot_threshold))
-            if use_rgb:
-                key_parts.append(_quantize(rgb, rgb_threshold))
+                keys = torch.cat(key_parts, dim=1).to(torch.int64)  # [M, D]
 
-            keys = torch.cat(key_parts, dim=1).to(torch.int64)  # [M, D]
+                # Group clusters
+                _, inv = torch.unique(keys, dim=0, sorted=False, return_inverse=True)  # inv: [M]
+                num_clusters = int(inv.max().item()) + 1
 
-            # Group clusters
-            _, inv = torch.unique(keys, dim=0, sorted=False, return_inverse=True)  # inv: [M]
-            num_clusters = int(inv.max().item()) + 1
+                # Representative = max opacity per cluster
+                max_opa = torch.full((num_clusters,), -1e10, device=device, dtype=opa.dtype)    # [K = num_clusters]
+                max_opa.scatter_reduce_(0, inv, opa, reduce="amax", include_self=True)  # [K]
 
-            # Representative = max opacity per cluster
-            max_opa = torch.full((num_clusters,), -1e10, device=device, dtype=opa.dtype)    # [K = num_clusters]
-            max_opa.scatter_reduce_(0, inv, opa, reduce="amax", include_self=True)  # [K]
+                # Candidates with max opacity (handle ties)
+                is_max = opa >= (max_opa[inv] - 1e-12)
+                cand = torch.where(is_max)[0]   # [K'], K' >= K
 
-            # Candidates with max opacity (handle ties)
-            is_max = opa >= (max_opa[inv] - 1e-12)
-            cand = torch.where(is_max)[0]   # [K'], K' >= K
+                # Tie-break deterministically: smallest local index
+                rep_local = torch.full((num_clusters,), g.shape[0], dtype=torch.long, device=device)
+                rep_local.scatter_reduce_(0, inv[cand], cand, reduce="amin", include_self=True)
+                rep_local = rep_local[rep_local < g.shape[0]]  # [K]
 
-            # Tie-break deterministically: smallest local index
-            rep_local = torch.full((num_clusters,), g.shape[0], dtype=torch.long, device=device)
-            rep_local.scatter_reduce_(0, inv[cand], cand, reduce="amin", include_self=True)
-            rep_local = rep_local[rep_local < g.shape[0]]  # [K]
+                keep_global = orig_idx[rep_local]  # indices in flattened [B*N]
 
-            keep_global = orig_idx[rep_local]  # indices in flattened [B*N]
-
-            keep_flat = torch.zeros(B * N, dtype=torch.bool, device=device)
-            keep_flat[keep_global] = True
-            keep_mask = keep_flat.view(B, N)
+                keep_flat = torch.zeros(B * N, dtype=torch.bool, device=device)
+                keep_flat[keep_global] = True
+                keep_mask = keep_flat.view(B, N)
 
         # Important: gather from original tensor -> kept gaussians keep gradient
         pruned_gaussians = [gaussians[b][keep_mask[b]] for b in range(B)]
@@ -631,7 +637,14 @@ class LGM(nn.Module):
             depth = depth.view(B, V, 1, self.cfg.splat_size, self.cfg.splat_size)  # [B, V, 1, h, w]
 
         device = gaussians.device
-        gaussians = self.gaussian_prune(gaussians)  # list of [M_b, 14], M_b is the number of Gaussians after pruning for batch b
+        gaussians = self.gaussian_prune(
+            gaussians,
+            alpha_threshold=self.cfg.alpha_threshold,
+            distance_threshold=self.cfg.distance_threshold,
+            scale_threshold=self.cfg.scale_threshold,
+            rot_threshold=self.cfg.rot_threshold,
+            rgb_threshold=self.cfg.rgb_threshold
+        )  # list of [M_b, 14], M_b is the number of Gaussians after pruning for batch b
         results['gaussians'] = gaussians
         results['average_kept_gaussians'] = torch.tensor(sum([g.shape[0] for g in gaussians]) / (len(gaussians) * self.cfg.splat_size * self.cfg.splat_size * V), device=device)
 

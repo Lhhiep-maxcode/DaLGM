@@ -92,6 +92,12 @@ class Options:
     prob_grid_distortion: float = 0.5
     # augmentation prob for camera jitter
     prob_cam_jitter: float = 0.5
+    # Gaussian pruning
+    alpha_threshold: float = 0.004
+    distance_threshold: float = 6e-3
+    scale_threshold: float = 1e-2
+    rot_threshold: float = 100.0
+    rgb_threshold: float = 100.0
 
     ### testing
     # test image path
