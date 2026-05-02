@@ -89,6 +89,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--object-start", type=int, default=None)
     p.add_argument("--object-end", type=int, default=None)
     p.add_argument("--max-objects", type=int, default=None)
+    p.add_argument("--object-list", default=None,
+                   help="Optional CSV/text file with fixed benchmark object IDs. When set, only these objects are exported/converted.")
 
     # Important model/dataset/render params.
     p.add_argument("--input-size", type=int, default=None)
@@ -274,6 +276,54 @@ def object_ids_from_batch(data: dict) -> list[str]:
     return [str(x) for x in list(object_id)]
 
 
+def load_object_list(path: Optional[str]) -> Optional[set[str]]:
+    if path is None or str(path).strip().lower() in {"", "none", "null"}:
+        return None
+
+    allowed: set[str] = set()
+    with open(path, "r", encoding="utf-8") as f:
+        sample = f.read(4096)
+        f.seek(0)
+
+        if "," in sample or "object_id" in sample:
+            reader = csv.DictReader(f)
+            for row in reader:
+                oid = str(row.get("object_id", "")).strip()
+                archive = str(row.get("archive_name", "")).strip()
+                item = str(row.get("item_name", "")).strip()
+                ply_path = str(row.get("ply_path", "")).strip()
+                glb_path = str(row.get("glb_path", "")).strip()
+
+                if not oid and archive and item:
+                    oid = f"{archive}/{item}"
+                if not oid and ply_path:
+                    stem = os.path.splitext(os.path.basename(ply_path))[0]
+                    parent = os.path.basename(os.path.dirname(ply_path))
+                    oid = f"{parent}/{stem}" if parent else stem
+                if not oid and glb_path:
+                    stem = os.path.splitext(os.path.basename(glb_path))[0]
+                    parent = os.path.basename(os.path.dirname(glb_path))
+                    oid = f"{parent}/{stem}" if parent else stem
+
+                if oid:
+                    allowed.add(oid)
+                    allowed.add(oid.split("/")[-1])
+        else:
+            for line in f:
+                oid = line.strip()
+                if oid:
+                    allowed.add(oid)
+                    allowed.add(oid.split("/")[-1])
+
+    return allowed
+
+
+def is_allowed_object(object_id: str, allowed: Optional[set[str]]) -> bool:
+    if allowed is None:
+        return True
+    return object_id in allowed or object_id.split("/")[-1] in allowed
+
+
 def write_manifest(path: str, rows: list[dict]) -> None:
     if not rows:
         return
@@ -284,7 +334,7 @@ def write_manifest(path: str, rows: list[dict]) -> None:
         writer.writerows(rows)
 
 
-def run_converter(args: argparse.Namespace, cfg, ply_root: str) -> None:
+def run_converter(args: argparse.Namespace, cfg, ply_root: str, manifest_path: str) -> None:
     script = Path(args.converter_script)
     if not script.is_file():
         # Also try relative to this script's CWD.
@@ -295,6 +345,7 @@ def run_converter(args: argparse.Namespace, cfg, ply_root: str) -> None:
         "--config", args.config,
         "--convert-script", args.convert_source_script,
         "--ply-root", ply_root,
+        "--manifest", manifest_path,
         "--input-size", str(cfg.input_size),
         "--splat-size", str(cfg.splat_size),
         "--output-size", str(cfg.output_size),
@@ -324,6 +375,8 @@ def run_converter(args: argparse.Namespace, cfg, ply_root: str) -> None:
         cmd.extend(["--target-glbs", str(args.target_glbs)])
     if args.convert_log_name:
         cmd.extend(["--convert-log-name", str(args.convert_log_name)])
+    if args.object_list is not None:
+        cmd.extend(["--object-list", str(args.object_list)])
     if args.overwrite_glb:
         cmd.append("--overwrite")
 
@@ -347,6 +400,10 @@ def main() -> None:
     else:
         print(cfg)
     print("[INFO] output mesh root:", mesh_root)
+
+    allowed_object_ids = load_object_list(args.object_list)
+    if allowed_object_ids is not None:
+        print(f"[INFO] using fixed object list: {args.object_list} ({len(allowed_object_ids)} ID aliases)")
 
     dataset = Dataset(
         data_path=cfg.data_path,
@@ -381,10 +438,19 @@ def main() -> None:
     model.eval()
 
     rows: list[dict] = []
+    exported_or_selected = 0
     with torch.no_grad():
         for data in tqdm(loader, desc="Export LGM Gaussians"):
-            object_ids = object_ids_from_batch(data)
-            # Fast skip when every PLY already exists and no overwrite.
+            object_ids_all = object_ids_from_batch(data)
+            selected = [(i, oid) for i, oid in enumerate(object_ids_all) if is_allowed_object(oid, allowed_object_ids)]
+            if not selected:
+                continue
+
+            selected_indices = [i for i, _ in selected]
+            object_ids = [oid for _, oid in selected]
+            exported_or_selected += len(object_ids)
+
+            # Fast skip when every selected PLY already exists and no overwrite.
             planned = []
             for oid in object_ids:
                 ply_path = os.path.join(mesh_root, *oid.split("/")) + ".ply"
@@ -396,9 +462,11 @@ def main() -> None:
                 continue
 
             data_dev = move_to_device(data, args.device)
-            gaussians_list = predict_gaussians_only(model, data_dev, cfg)
-            if len(gaussians_list) != len(object_ids):
-                raise RuntimeError(f"Batch mismatch: got {len(gaussians_list)} Gaussian sets for {len(object_ids)} object IDs")
+            gaussians_all = predict_gaussians_only(model, data_dev, cfg)
+            if len(gaussians_all) != len(object_ids_all):
+                raise RuntimeError(f"Batch mismatch: got {len(gaussians_all)} Gaussian sets for {len(object_ids_all)} object IDs")
+
+            gaussians_list = [gaussians_all[i] for i in selected_indices]
 
             for oid, g in zip(object_ids, gaussians_list):
                 ply_path = os.path.join(mesh_root, *oid.split("/")) + ".ply"
@@ -417,9 +485,13 @@ def main() -> None:
 
     print(f"[INFO] saved manifest: {manifest_path}")
     print(f"[INFO] PLY root: {mesh_root}")
+    if allowed_object_ids is not None:
+        print(f"[INFO] selected/exported objects from fixed list in this run: {exported_or_selected}")
+        if exported_or_selected == 0:
+            raise RuntimeError("No objects matched --object-list. Check object_id/archive naming and split settings.")
 
     if args.convert:
-        run_converter(args, cfg, mesh_root)
+        run_converter(args, cfg, mesh_root, manifest_path)
         print(f"[INFO] GLB files should now be next to the PLY files under: {mesh_root}")
 
 

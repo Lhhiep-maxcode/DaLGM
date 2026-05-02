@@ -46,6 +46,10 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--convert-script", default="convert.py", help="Path to original convert.py.")
     p.add_argument("--ply-root", required=True, help="Root folder containing .ply files recursively.")
     p.add_argument("--manifest", default=None, help="Optional CSV manifest from export_lgm_gaussians.py; if provided, only these rows are converted.")
+    p.add_argument("--object-list", default=None,
+                   help="Optional CSV/text file containing fixed benchmark object IDs. If set, only matching PLYs are converted.")
+    p.add_argument("--benchmark-name", default="benchmark_objects.csv",
+                   help="CSV filename written under --ply-root containing only usable GLB objects. Use this as --object-list for later checkpoints.")
 
     p.add_argument("--input-size", type=int, default=None)
     p.add_argument("--splat-size", type=int, default=None)
@@ -156,15 +160,118 @@ def count_ply_vertices(path: str) -> Optional[int]:
     return None
 
 
+def object_id_from_ply(ply_path: str, ply_root: str) -> tuple[str, str, str]:
+    """Return (object_id, archive_name, item_name) from a PLY path.
+
+    Expected layout: ply_root/archive_xxx/object_id.ply.
+    For flatter layouts, object_id falls back to the file stem.
+    """
+    rel = os.path.relpath(ply_path, ply_root)
+    rel_no_ext = os.path.splitext(rel)[0]
+    parts = Path(rel_no_ext).parts
+    if len(parts) >= 2:
+        archive_name = parts[-2]
+        item_name = parts[-1]
+        object_id = f"{archive_name}/{item_name}"
+    else:
+        archive_name = ""
+        item_name = parts[-1]
+        object_id = item_name
+    return object_id, archive_name, item_name
+
+
+def load_object_list(path: Optional[str]) -> Optional[set[str]]:
+    if path is None or str(path).strip().lower() in {"", "none", "null"}:
+        return None
+
+    allowed: set[str] = set()
+    with open(path, "r", encoding="utf-8") as f:
+        sample = f.read(4096)
+        f.seek(0)
+
+        # CSV: supports object_id, archive_name/item_name, ply_path, glb_path.
+        if "," in sample or "object_id" in sample:
+            reader = csv.DictReader(f)
+            for row in reader:
+                oid = str(row.get("object_id", "")).strip()
+                archive = str(row.get("archive_name", "")).strip()
+                item = str(row.get("item_name", "")).strip()
+                ply_path = str(row.get("ply_path", "")).strip()
+                glb_path = str(row.get("glb_path", "")).strip()
+
+                if not oid and archive and item:
+                    oid = f"{archive}/{item}"
+                if not oid and ply_path:
+                    stem = os.path.splitext(os.path.basename(ply_path))[0]
+                    parent = os.path.basename(os.path.dirname(ply_path))
+                    oid = f"{parent}/{stem}" if parent else stem
+                if not oid and glb_path:
+                    stem = os.path.splitext(os.path.basename(glb_path))[0]
+                    parent = os.path.basename(os.path.dirname(glb_path))
+                    oid = f"{parent}/{stem}" if parent else stem
+
+                if oid:
+                    allowed.add(oid)
+                    allowed.add(oid.split("/")[-1])
+        else:
+            # Plain text: one object_id per line.
+            for line in f:
+                oid = line.strip()
+                if oid:
+                    allowed.add(oid)
+                    allowed.add(oid.split("/")[-1])
+
+    return allowed
+
+
+def is_allowed_object(object_id: str, allowed: Optional[set[str]]) -> bool:
+    if allowed is None:
+        return True
+    return object_id in allowed or object_id.split("/")[-1] in allowed
+
+
 def write_convert_log(path: str, rows: list[dict]) -> None:
     if not rows:
         return
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    fieldnames = ["ply_path", "glb_path", "point_count", "status", "error"]
+    fieldnames = ["object_id", "archive_name", "item_name", "ply_path", "glb_path", "point_count", "status", "error"]
     with open(path, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(rows)
+
+
+def write_benchmark_list(path: str, rows: list[dict]) -> None:
+    """Write only usable GLB rows. This is the fixed object set for fair eval."""
+    usable_status = {"converted", "skipped_existing_glb"}
+    usable = []
+    seen = set()
+
+    for r in rows:
+        oid = str(r.get("object_id", "")).strip()
+        glb_path = str(r.get("glb_path", "")).strip()
+        if not oid or oid in seen:
+            continue
+        if r.get("status") in usable_status and glb_path and os.path.exists(glb_path):
+            usable.append({
+                "object_id": oid,
+                "archive_name": r.get("archive_name", ""),
+                "item_name": r.get("item_name", oid.split("/")[-1]),
+                "ply_path": r.get("ply_path", ""),
+                "glb_path": glb_path,
+                "point_count": r.get("point_count", ""),
+            })
+            seen.add(oid)
+
+    if not usable:
+        return
+
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    fieldnames = ["object_id", "archive_name", "item_name", "ply_path", "glb_path", "point_count"]
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(usable)
 
 
 def discover_plys(args: argparse.Namespace) -> list[str]:
@@ -181,6 +288,12 @@ def discover_plys(args: argparse.Namespace) -> list[str]:
                 if fname.lower().endswith(".ply"):
                     plys.append(os.path.join(root, fname))
         plys = sorted(plys)
+
+    allowed = load_object_list(args.object_list)
+    if allowed is not None:
+        before = len(plys)
+        plys = [p for p in plys if is_allowed_object(object_id_from_ply(p, args.ply_root)[0], allowed)]
+        print(f"[INFO] object-list filter: {before} -> {len(plys)} PLY candidates")
 
     if args.object_start is not None or args.object_end is not None:
         plys = plys[args.object_start: args.object_end]
@@ -202,6 +315,7 @@ def main() -> None:
         raise RuntimeError(f"No .ply files found under {args.ply_root}")
 
     convert_log_path = os.path.join(args.ply_root, args.convert_log_name)
+    benchmark_path = os.path.join(args.ply_root, args.benchmark_name)
     rows: list[dict] = []
     success_glbs = 0
     skipped_big = 0
@@ -219,12 +333,16 @@ def main() -> None:
             break
 
         glb_path = os.path.splitext(ply_path)[0] + ".glb"
+        object_id, archive_name, item_name = object_id_from_ply(ply_path, args.ply_root)
         point_count = count_ply_vertices(ply_path)
 
         if args.max_ply_points is not None and point_count is not None and point_count > args.max_ply_points:
             skipped_big += 1
             print(f"[SKIP_BIG] {ply_path} point_count={point_count} > {args.max_ply_points}")
             rows.append({
+                "object_id": object_id,
+                "archive_name": archive_name,
+                "item_name": item_name,
                 "ply_path": ply_path,
                 "glb_path": glb_path,
                 "point_count": point_count,
@@ -232,12 +350,16 @@ def main() -> None:
                 "error": "",
             })
             write_convert_log(convert_log_path, rows)
+            write_benchmark_list(benchmark_path, rows)
             continue
 
         if os.path.exists(glb_path) and not args.overwrite:
             success_glbs += 1
             print(f"[SKIP_EXISTING] {glb_path} ({success_glbs} usable GLB)")
             rows.append({
+                "object_id": object_id,
+                "archive_name": archive_name,
+                "item_name": item_name,
                 "ply_path": ply_path,
                 "glb_path": glb_path,
                 "point_count": point_count if point_count is not None else "",
@@ -245,6 +367,7 @@ def main() -> None:
                 "error": "",
             })
             write_convert_log(convert_log_path, rows)
+            write_benchmark_list(benchmark_path, rows)
             continue
 
         cfg.test_path = ply_path
@@ -258,6 +381,9 @@ def main() -> None:
             success_glbs += 1
             print(f"[OK] {glb_path} ({success_glbs} usable GLB)")
             rows.append({
+                "object_id": object_id,
+                "archive_name": archive_name,
+                "item_name": item_name,
                 "ply_path": ply_path,
                 "glb_path": glb_path,
                 "point_count": point_count if point_count is not None else "",
@@ -268,6 +394,9 @@ def main() -> None:
             errors += 1
             print(f"[ERROR] {ply_path}: {repr(exc)}")
             rows.append({
+                "object_id": object_id,
+                "archive_name": archive_name,
+                "item_name": item_name,
                 "ply_path": ply_path,
                 "glb_path": glb_path,
                 "point_count": point_count if point_count is not None else "",
@@ -283,12 +412,21 @@ def main() -> None:
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
             write_convert_log(convert_log_path, rows)
+            write_benchmark_list(benchmark_path, rows)
 
     print("[INFO] conversion summary:")
     print(f"  usable_glbs={success_glbs}")
     print(f"  skipped_too_many_points={skipped_big}")
     print(f"  errors={errors}")
     print(f"  log={convert_log_path}")
+    print(f"  benchmark_object_list={benchmark_path}")
+
+    if args.target_glbs is not None and success_glbs < args.target_glbs:
+        raise RuntimeError(
+            f"Only {success_glbs} usable GLB files were produced/found, "
+            f"but --target-glbs={args.target_glbs}. Increase --max-objects, "
+            "raise --max-ply-points, or inspect the convert log for errors."
+        )
 
 
 if __name__ == "__main__":
