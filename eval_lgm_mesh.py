@@ -425,6 +425,14 @@ class LGMMeshEvalDataset(torch.utils.data.Dataset):
         self.mesh_index = build_glb_index(cfg.mesh_path)
         self.gt_mesh_index = build_glb_index(cfg.gt_mesh_path)
 
+        items = [
+            (archive, item, item_path)
+            for archive, item, item_path in items
+            if f"{archive}/{item}" in self.mesh_index or item in self.mesh_index
+        ]
+        print(f"[INFO] After mesh filtering: {len(items)} objects remain.")
+        self.items = items
+
         if allowed is not None and not cfg.allow_missing_object_list:
             missing = [
                 f"{archive}/{item}"
