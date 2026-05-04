@@ -140,6 +140,9 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--convert-log-name", default="lgm_convert_manifest.csv",
                    help="Passed to converter: CSV log filename written under outdir/meshes.")
     p.add_argument("--overwrite-glb", action="store_true")
+    p.add_argument("--prune", dest="prune", action="store_true")
+    p.add_argument("--no-prune", dest="prune", action="store_false")
+    p.set_defaults(prune=False)
 
     return p.parse_args()
 
@@ -167,7 +170,8 @@ def build_cfg(args: argparse.Namespace):
     cfg.zfar = args.zfar
     cfg.self_supervised = args.self_supervised
     cfg.compute_surface = args.compute_surface
-
+    cfg.prune = args.prune
+    
     if args.input_size is not None:
         cfg.input_size = args.input_size
     if args.splat_size is not None:
