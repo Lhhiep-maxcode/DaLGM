@@ -1,6 +1,8 @@
 from core.model_config import AllConfigs, Options
 from core.model import LGM
 from accelerate import Accelerator
+from accelerate.utils import InitProcessGroupKwargs
+from datetime import timedelta
 from safetensors.torch import load_file
 from core.dataset import ObjaverseDataset as Dataset
 from tqdm.auto import tqdm
@@ -18,9 +20,16 @@ def main():
     
     cfg = tyro.cli(AllConfigs)
 
+    os.environ.setdefault("TORCH_NCCL_BLOCKING_WAIT", "1")
+
+    init_pg_kwargs = InitProcessGroupKwargs(
+        timeout=timedelta(hours=24) 
+    )
+
     accelerator = Accelerator(
         mixed_precision=cfg.mixed_precision,
-        gradient_accumulation_steps=cfg.gradient_accumulation_steps
+        gradient_accumulation_steps=cfg.gradient_accumulation_steps,
+        kwargs_handlers=[init_pg_kwargs],
     )
 
     model = LGM(cfg)
