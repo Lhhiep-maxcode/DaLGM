@@ -9,7 +9,7 @@ class Options:
     input_size: int = 160
     pixel_align: bool = False
     self_supervised: bool = False
-    compute_surface = True
+    compute_surface:bool = True
     max_distance: float = 2.5
     # Unet definition
     down_channels: Tuple[int, ...] = (64, 128, 256, 512, 1024, 1024)
