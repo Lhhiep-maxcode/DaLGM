@@ -154,20 +154,14 @@ def main():
                     obj_vis_dir = os.path.join(cfg.workspace, safe_name)
                     os.makedirs(obj_vis_dir, exist_ok=True)
 
-                    gt_np = gt_images_batch[b].numpy()      # [V, 3, H, W]
-                    gt_np = gt_np.transpose(0, 2, 3, 1)    # [V, H, W, 3]
-                    V, H, W, C = gt_np.shape
-                    gt_strip = gt_np.reshape(H, V * W, C)  # [H, V*W, 3]
-                    kiui.utils.write_image(
-                        os.path.join(obj_vis_dir, 'gt.jpg'), gt_strip
-                    )
-
-                    pred_np = pred_images_batch[b].numpy()
-                    pred_np = pred_np.transpose(0, 2, 3, 1)
-                    pred_strip = pred_np.reshape(H, V * W, C)
-                    kiui.utils.write_image(
-                        os.path.join(obj_vis_dir, 'pred.jpg'), pred_strip
-                    )
+                    # [V, 3, H, W] -> [V, H, W, 3] -> concatenate along W axis -> [H, V*W, 3]
+                    gt_np = gt_images_batch[b].numpy().transpose(0, 2, 3, 1)    # [V, H, W, 3]
+                    gt_strip = np.concatenate([gt_np[v] for v in range(gt_np.shape[0])], axis=1)
+                    kiui.utils.write_image(os.path.join(obj_vis_dir, 'gt.jpg'), gt_strip)
+ 
+                    pred_np = pred_images_batch[b].numpy().transpose(0, 2, 3, 1)  # [V, H, W, 3]
+                    pred_strip = np.concatenate([pred_np[v] for v in range(pred_np.shape[0])], axis=1)
+                    kiui.utils.write_image(os.path.join(obj_vis_dir, 'pred.jpg'), pred_strip)
             
             # Clear large tensors from GPU memory
             del out
