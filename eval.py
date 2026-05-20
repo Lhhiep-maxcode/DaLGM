@@ -1,6 +1,8 @@
 from core.model_config import AllConfigs, Options
 from core.model import LGM
 from accelerate import Accelerator
+from accelerate.utils import InitProcessGroupKwargs
+from datetime import timedelta
 from safetensors.torch import load_file
 from core.dataset import ObjaverseDataset as Dataset
 from tqdm.auto import tqdm
@@ -13,14 +15,22 @@ import wandb
 import numpy as np
 import os
 import random
+import json
 
 def main():
     
     cfg = tyro.cli(AllConfigs)
 
+    os.environ.setdefault("TORCH_NCCL_BLOCKING_WAIT", "1")
+
+    init_pg_kwargs = InitProcessGroupKwargs(
+        timeout=timedelta(hours=24) 
+    )
+
     accelerator = Accelerator(
         mixed_precision=cfg.mixed_precision,
-        gradient_accumulation_steps=cfg.gradient_accumulation_steps
+        gradient_accumulation_steps=cfg.gradient_accumulation_steps,
+        kwargs_handlers=[init_pg_kwargs],
     )
 
     model = LGM(cfg)
@@ -72,6 +82,7 @@ def main():
 
     if not cfg.fine_tune and cfg.resume is not None:
         # NOTE: cfg.resume (dir type) must be saved by accelerator.save_state()
+        # Continue training by loading all state of optimizer, model, scheduler
         accelerator.load_state(cfg.resume, strict=False)
 
     if accelerator.is_main_process:
@@ -86,6 +97,7 @@ def main():
         total_abs_rel = 0
         total_sq_rel = 0
         total_delta_1 = 0
+        per_object_results = {}  # object_id -> metrics dict
         if accelerator.is_main_process:
             pbar2 = tqdm(val_dataloader, desc=f"[Evaluation]")
 
@@ -110,14 +122,53 @@ def main():
 
             if accelerator.is_main_process:
                 pbar2.update(1)
-                if i % 5 == 0:
-                    gt_images = data['images_output'].detach().cpu().numpy()    # [B, V, 3, output_size, output_size]
-                    gt_images = gt_images.transpose(0, 3, 1, 4, 2).reshape(-1, gt_images.shape[1] * gt_images.shape[3], 3)
-                    kiui.utils.write_image(f'{cfg.workspace}/{i}_eval_gt_images.jpg', gt_images)
 
-                    pred_images = out['images_pred'].detach().cpu().numpy()     # [B, V, 3, output_size, output_size]
-                    pred_images = pred_images.transpose(0, 3, 1, 4, 2).reshape(-1, pred_images.shape[1] * pred_images.shape[3], 3)
-                    kiui.utils.write_image(f'{cfg.workspace}/{i}_eval_pred_images.jpg', pred_images)
+                # --- per-object metrics & image saving ---
+                object_ids = data['object_id']  # list of B strings, e.g. ["archive_001/chair_01", ...]
+                gt_images_batch = data['images_output'].detach().cpu()      # [B, V, 3, H, W]
+                pred_images_batch = out['images_pred'].detach().cpu()       # [B, V, 3, H, W]
+                B = gt_images_batch.shape[0]
+
+                for b in range(B):
+                    obj_id = object_ids[b]                   # "archive_xxx/obj_name"
+                    safe_name = obj_id.replace('/', '__')    # "archive_xxx__obj_name"
+
+                    # per-object metrics: if model outputs per-sample tensors use them,
+                    # otherwise fall back to the batch-level scalar for this object
+                    # (model.py may return scalar or [B]-shaped tensors)
+                    def _scalar(t, b):
+                        t = t if torch.is_tensor(t) else torch.tensor(t)
+                        return t[b].item() if t.dim() > 0 and t.shape[0] == B else t.item()
+
+                    per_object_results[obj_id] = {
+                        "psnr":     _scalar(psnr,     b),
+                        "ssim":     _scalar(ssim,     b),
+                        "lpips":    _scalar(lpips,    b),
+                        "abs_diff": _scalar(abs_diff, b),
+                        "abs_rel":  _scalar(abs_rel,  b),
+                        "sq_rel":   _scalar(sq_rel,   b),
+                        "delta_1":  _scalar(delta_1,  b),
+                    }
+
+                    # save GT and pred strips into a per-object folder
+                    if i % 5 == 0:
+                        obj_vis_dir = os.path.join(cfg.workspace, safe_name)
+                        os.makedirs(obj_vis_dir, exist_ok=True)
+
+                        gt_np = gt_images_batch[b].numpy()      # [V, 3, H, W]
+                        gt_np = gt_np.transpose(0, 2, 3, 1)    # [V, H, W, 3]
+                        V, H, W, C = gt_np.shape
+                        gt_strip = gt_np.reshape(H, V * W, C)  # [H, V*W, 3]
+                        kiui.utils.write_image(
+                            os.path.join(obj_vis_dir, 'gt.jpg'), gt_strip
+                        )
+
+                        pred_np = pred_images_batch[b].numpy()
+                        pred_np = pred_np.transpose(0, 2, 3, 1)
+                        pred_strip = pred_np.reshape(H, V * W, C)
+                        kiui.utils.write_image(
+                            os.path.join(obj_vis_dir, 'pred.jpg'), pred_strip
+                        )
             
             # Clear large tensors from GPU memory
             del out
@@ -151,6 +202,22 @@ def main():
             total_sq_rel /= len(val_dataloader)
             total_delta_1 /= len(val_dataloader)
             accelerator.print(f'[EVAL] psnr: {total_psnr:.4f}, ssim: {total_ssim:.4f}, lpips: {total_lpips:.4f}, abs_diff: {total_abs_diff:.4f}, abs_rel: {total_abs_rel:.4f}, sq_rel: {total_sq_rel:.4f}, delta_1: {total_delta_1:.4f}')
+
+            # Save results to JSON
+            aggregate = {
+                "psnr":     total_psnr.item(),
+                "ssim":     total_ssim.item(),
+                "lpips":    total_lpips.item(),
+                "abs_diff": total_abs_diff.item(),
+                "abs_rel":  total_abs_rel.item(),
+                "sq_rel":   total_sq_rel.item(),
+                "delta_1":  total_delta_1.item(),
+                "num_objects": len(per_object_results),
+            }
+            scores_path = os.path.join(cfg.workspace, "scores.json")
+            with open(scores_path, "w") as f:
+                json.dump({"aggregate": aggregate, "per_object": per_object_results}, f, indent=4)
+            accelerator.print(f'[EVAL] saved per-object results to {scores_path}')
 
 
 if __name__ == "__main__":
