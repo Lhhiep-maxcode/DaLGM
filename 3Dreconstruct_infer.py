@@ -231,3 +231,8 @@ def run(cfg: Options, path):
 
 path = '/kaggle/input/datasets/laihoanghiep/100-abo-rgb-input/archive_001/B01D7P5BFS/rgb'
 run(cfg, path)
+
+# Usage:
+# !python 3Dreconstruct_infer.py big --no-fancy-video \
+#     --resume /kaggle/input/models/lihonghip/adaptive-lgm/pytorch/default/5/adaptive-lgm.safetensors \
+#     --pixel_align --input_size 160 --splat_size 160
