@@ -36,7 +36,8 @@ class ObjaverseDataset(Dataset):
         depth2_path, # /kaggle/input/10k-dataset-9-views-depth-and-normal-2
         depth3_path, # /kaggle/input/10k-dataset-9-views-depth-and-normal-3
         depth4_path, # /kaggle/input/10k-dataset-9-views-depth-and-normal-4
-        cfg: Options, 
+        eval_path=None,
+        cfg: Optional[Options] = None, 
         type: Literal['train', 'test', 'val']='train'
     ):
         
@@ -280,7 +281,7 @@ class ObjaverseDataset(Dataset):
         results['cam_view_output'] = cam_view
         results['cam_view_proj_output'] = cam_view_proj
         results['cam_pos_output'] = cam_pos
-
+        results['object_id'] = f"{archive_name}/{item_name}"
         # results = {
         #     [C, H, W]
         #     'input': ...,             (processed input images [V_in,9,256,256])
