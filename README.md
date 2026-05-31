@@ -12,8 +12,8 @@ The pipeline takes multi-view RGB images of an object as input, predicts a set o
 - **Pixel-aligned Gaussians** — each Gaussian is placed along a camera ray at a learned depth, giving better geometric grounding
 - **Depth supervision** — pixel-aligned depth is supervised against ground-truth depth maps using L1/L2/Huber/BerHu/scale-invariant losses with an optional ranking term
 - **Gaussian pruning** — voxel-grid clustering removes duplicate/low-opacity Gaussians before rendering
----
 
+---
 
 ## Setup
 
@@ -45,9 +45,9 @@ dataset_root/
 │       ├── rgb/
 │       │   ├── 000.png (elev: 0, azim: 0)
 │       │   ├── 001.png (elev: 0, azim: 5.625)
-|       |   |
-│       │   └── 063.png (elev: 0, azim: 354.375) 
-│       │   └── 064.png (elev: 90, azim: 180)     
+|       |   ├── ...
+│       │   └── 063.png (elev: 0, azim: 354.375)
+│       │   └── 064.png (elev: 90, azim: 180)
 │       └── depth/
 │           ├── 000.npz
 │           └── ...
