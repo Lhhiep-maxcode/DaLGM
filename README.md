@@ -1,6 +1,6 @@
-# LGM-from-scratch
+# DaLGM
 
-A custom reimplementation and extension of **Large Gaussian Model (LGM)** for feed-forward 3D object reconstruction from multi-view images. The model predicts a 3D Gaussian Splatting (3DGS) representation from 9 input views and renders novel views at high quality.
+The official implementation of DaLGM, a depth-aware extension of the Large Multi-View Gaussian Model (LGM) for feed-forward 3D object reconstruction. Given 9 input views, the model predicts a 3D Gaussian Splatting (3DGS) representation and renders high-quality novel views while improving geometric fidelity and training efficiency through depth supervision and Gaussian pruning.
 
 ---
 
@@ -9,8 +9,8 @@ A custom reimplementation and extension of **Large Gaussian Model (LGM)** for fe
 The pipeline takes multi-view RGB images of an object as input, predicts a set of 3D Gaussians via a UNet, and renders novel views using a differentiable Gaussian rasterizer. Key extensions over the original LGM include:
 
 - **Adaptive input views** — input views are sampled randomly from fixed azimuth bands during training, improving robustness
-- **Pixel-aligned Gaussians** — each Gaussian is placed along a camera ray at a learned depth, giving better geometric grounding
-- **Depth supervision** — pixel-aligned depth is supervised against ground-truth depth maps using L1/L2/Huber/BerHu/scale-invariant losses with an optional ranking term
+- **Pixel-aligned Gaussians** — each Gaussian is placed along a camera ray at a learned depth, giving better geometric grounding and direct depth map extraction
+- **Depth supervision** — pixel-aligned depth is supervised against ground-truth depth maps using L1/L2/Huber/BerHu losses with depth-aware RANKING loss
 - **Gaussian pruning** — voxel-grid clustering removes duplicate/low-opacity Gaussians before rendering
 
 ---
