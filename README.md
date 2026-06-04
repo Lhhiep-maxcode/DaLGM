@@ -18,20 +18,67 @@ The pipeline takes multi-view RGB images of an object as input, predicts a set o
 ## Setup
 
 ### 1. Install dependencies
+Requirements: 
+- CUDA version: 
+
+Clone the repository:
 
 ```bash
-bash setup.sh
+git clone https://github.com/Lhhiep-maxcode/DaLGM.git
+cd DaLGM
 ```
 
+Create and activate a Conda environment:
+
+```bash
+conda create -n dalgm python=3.12 -y
+conda activate dalgm
+```
+
+Install all dependencies (replace `13.0` with your CUDA version, e.g., `12.8`, `12.6`, or `13.0`):
+
+```bash
+bash setup.sh 13.0
+```
 This will install PyTorch, xFormers, `diff-gaussian-rasterization`, `nvdiffrast`, and all Python requirements, then download the pretrained checkpoint.
+
+#### Backup (Only need if above installation failed)
 
 Manual install if needed:
 
 ```bash
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
-pip install xformers --index-url https://download.pytorch.org/whl/cu128
+pip install torch torchvision --index-url $TORCH_INDEX_URL
+
+pip install xformers --index-url $TORCH_INDEX_URL
+
+git clone --recursive https://github.com/ashawkey/diff-gaussian-rasterization
+
 pip install ./diff-gaussian-rasterization --no-build-isolation
+
+pip install ./wheels/nvdiffrast-0.3.3-py3-none-any.whl
+
 pip install -r requirements.txt
+
+mkdir -p pretrained
+cd pretrained
+wget https://huggingface.co/Hiepppp/LGM/resolve/main/model_fp16_fixrot.safetensors
+cd ..
+
+mkdir -p best_phase1
+cd best_phase1
+pip install gdown
+gdown 1t1HkFyPrvCdMgmQi__cIEx1pnf4hbWtf
+cd ..
+cd ..
+
+pip install kaggle
+
+mkdir 10k-dataset-9-views
+kaggle datasets download laihoanghiep/10k-dataset-9-views-depth
+kaggle datasets download laihoanghiep/10k-dataset-9-views
+
+unzip 10k-dataset-9-views-depth.zip -d 10k-dataset-9-views
+unzip 10k-dataset-9-views.zip -d 10k-dataset-9-views
 ```
 
 ### 2. Data
