@@ -6,10 +6,11 @@ echo " LGM-from-sratch environment setup"
 echo "========================================"
 
 # -------- CONFIG --------
-TORCH_INDEX_URL=https://download.pytorch.org/whl/cu128
-REPO_URL=https://github.com/Lhhiep-maxcode/LGM-from-sratch.git
-REPO_BRANCH=adaptive-LGM-with-depth
-MODEL_URL=https://huggingface.co/Hiepppp/LGM/resolve/main/model_fp16_fixrot.safetensors
+CUDA_VERSION=${1:-13.0}
+TORCH_INDEX_URL="https://download.pytorch.org/whl/cu${CUDA_VERSION/./}"
+REPO_URL="https://github.com/Lhhiep-maxcode/LGM-from-sratch.git"
+REPO_BRANCH="adaptive-LGM-with-depth"
+MODEL_URL="https://huggingface.co/Hiepppp/LGM/resolve/main/model_fp16_fixrot.safetensors"
 # ------------------------
 
 echo "[1/9] Install PyTorch + TorchVision"
@@ -21,7 +22,7 @@ echo "Repository already exists, skipping clone"
 
 
 echo "[3/9] Install xFormers"
-pip install xformers --index-url https://download.pytorch.org/whl/cu128
+pip install xformers --index-url $TORCH_INDEX_URL
 
 echo "[4/9] Clone diff-gaussian-rasterization"
 if [ ! -d "diff-gaussian-rasterization" ]; then
