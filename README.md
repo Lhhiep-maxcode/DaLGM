@@ -4,7 +4,7 @@ The official implementation of DaLGM, a depth-aware extension of the Large Multi
 
 ---
 
-## Overview
+## I. Overview
 
 The pipeline takes multi-view RGB images of an object as input, predicts a set of 3D Gaussians via a UNet, and renders novel views using a differentiable Gaussian rasterizer. Key extensions over the original LGM include:
 
@@ -15,7 +15,7 @@ The pipeline takes multi-view RGB images of an object as input, predicts a set o
 
 ---
 
-## Setup
+## II. Setup
 
 ### 1. Install dependencies
 
@@ -24,6 +24,7 @@ Recommend for reproduciblity:
 - CUDA version: 13.0 or 12.8
 - GPU type: NVIDIA RTX5880Ada
 - Num GPUs: 2
+- Min available space: 190 GB
 
 Clone the repository:
 
@@ -113,7 +114,7 @@ dataset_root/
 
 ---
 
-## Training
+## III. Training
 
 Review the `train.sh` script and modify it if necessary. For reproducibility, you only need to update the following variables to match your local environment:
 
@@ -151,7 +152,7 @@ accelerate launch --config_file accelerate_configs/gpu2.yaml main.py big \
 
 ---
 
-## Evaluation
+## IV. Evaluation
 
 ### Gaussian-level eval (PSNR / SSIM / LPIPS)
 
@@ -202,7 +203,7 @@ python eval_lgm_mesh.py \
 
 ---
 
-## Inference
+## V. Inference
 
 ### From real multi-view images (3D reconstruction)
 
