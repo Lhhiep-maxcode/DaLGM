@@ -223,15 +223,3 @@ python 3Dgen_infer.py big \
     --test_path /path/to/image.png \
     --workspace output/
 ```
-
----
-
-## Requirements
-
-Main dependencies:
-
-- Python 3.10+
-- PyTorch 2.x + CUDA 12.8
-- `diff-gaussian-rasterization` (custom, from [ashawkey](https://github.com/ashawkey/diff-gaussian-rasterization))
-- `nvdiffrast`
-- `nerfacc`, `xformers`, `kiui`, `accelerate`, `trimesh`
