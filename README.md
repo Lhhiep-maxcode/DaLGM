@@ -18,8 +18,10 @@ The pipeline takes multi-view RGB images of an object as input, predicts a set o
 ## Setup
 
 ### 1. Install dependencies
-Requirements: 
-- CUDA version: 
+Recommend for reproduciblity: 
+- CUDA version: 13.0 or 12.8
+- GPU type: NVIDIA RTX5880Ada
+- Num GPUS: 2
 
 Clone the repository:
 
@@ -35,21 +37,27 @@ conda create -n dalgm python=3.12 -y
 conda activate dalgm
 ```
 
-Install all dependencies (replace `13.0` with your CUDA version, e.g., `12.8`, `12.6`, or `13.0`):
+Install all dependencies (replace `13.0` with your CUDA version, e.g., `12.8`). Currently, the installation script has been verified to work with CUDA 13.0 and CUDA 12.8.
 
 ```bash
 bash setup.sh 13.0
 ```
 This will install PyTorch, xFormers, `diff-gaussian-rasterization`, `nvdiffrast`, and all Python requirements, then download the pretrained checkpoint.
 
-#### Backup (Only need if above installation failed)
+#### Backup (Only need if command `bash setup.sh 13.0` failed)
 
 Manual install if needed:
 
 ```bash
-pip install torch torchvision --index-url $TORCH_INDEX_URL
+git clone https://github.com/Lhhiep-maxcode/DaLGM.git
+cd DaLGM
 
-pip install xformers --index-url $TORCH_INDEX_URL
+conda create -n dalgm python=3.12 -y
+conda activate dalgm
+
+pip install torch torchvision --index-url TORCH_INDEX_URL
+
+pip install xformers --index-url TORCH_INDEX_URL
 
 git clone --recursive https://github.com/ashawkey/diff-gaussian-rasterization
 
@@ -83,7 +91,7 @@ unzip 10k-dataset-9-views.zip -d 10k-dataset-9-views
 
 ### 2. Data
 
-The dataset follows this layout:
+After success installation, the dataset follows this layout:
 
 ```
 dataset_root/
@@ -100,11 +108,18 @@ dataset_root/
 │           └── ...
 ```
 
-Depth files can be `.npz` (key `"depth"` or `"data"`) or `.npy`.
-
 ---
 
 ## Training
+
+Review the `train.sh` script and modify it if necessary. For reproducibility, you only need to update the following variables to match your local environment:
+- `data_path`
+- `depth1_path`
+- `wandb_project_name`
+- `wandb_experiment_id` (can be set to `None`)
+- `wandb_key`
+
+Once the configuration is ready, start training with:
 
 ```bash
 bash train.sh
@@ -114,16 +129,17 @@ Or manually:
 
 ```bash
 accelerate launch --config_file accelerate_configs/gpu2.yaml main.py big \
-    --resume /workspace/LGM-from-sratch/best_phase1/best_phase1_model.safetensors --fine_tune \
+    --resume best_phase1/best_phase1_model.safetensors --fine_tune \
     --workspace workspace \
-    --data_path /path/to/dataset \
-    --depth1_path /path/to/depth_dataset \
-    --lambda_depth 0.5 --lambda_depth_rank 0.3 --depth_loss_type l1 \
-    --batch_size 6 --mixed_precision fp16 --input_size 160 --splat_size 160 --pixel_align \
+    --data_path ../10k-dataset-9-views \
+    --depth1_path ../10k-dataset-9-views \
+    --lambda_depth 0.5 --lambda_grad -1 --lambda_opacity -1 --lambda_depth_rank 0.3 --depth_loss_type l1 \
+    --num_workers 4 --batch_size 6 --mixed_precision fp16 --input_size 160 --splat_size 160 --pixel_align \
     --output_size 512 --num_epochs 50 --train_size 0.8 --num_views_input 9 --num_views_output 9 \
+    --alpha_threshold 0.004 --distance_threshold -1 --scale_threshold -1 --rot_threshold -1 --rgb_threshold -1 \
     --lr 1e-4 --gradient_accumulation_steps 4 --warmup_steps 2500 \
     --wandb_project_name YOUR_PROJECT_NAME \
-    --wandb_experiment_id YOUR_EXPERIMENT_ID \
+    --wandb_experiment_id None \
     --wandb_experiment_name YOUR_EXPERIMENT_NAME \
     --wandb_key YOUR_WANDB_KEY \
     > train.log 2>&1 &
