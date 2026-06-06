@@ -21,10 +21,10 @@ The pipeline takes multi-view RGB images of an object as input, predicts a set o
 
 Recommend for reproduciblity:
 
-- CUDA version: 13.0 or 12.8
-- GPU type: NVIDIA RTX5880Ada
-- Num GPUs: 2
-- Min available space: 190 GB
+- **CUDA version**: 13.0 or 12.8
+- **GPU type**: NVIDIA RTX5880Ada
+- **Num GPUs**: 2
+- **Min available space**: 190 GB
 
 Clone the repository:
 
