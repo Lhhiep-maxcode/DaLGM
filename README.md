@@ -18,10 +18,12 @@ The pipeline takes multi-view RGB images of an object as input, predicts a set o
 ## Setup
 
 ### 1. Install dependencies
-Recommend for reproduciblity: 
+
+Recommend for reproduciblity:
+
 - CUDA version: 13.0 or 12.8
 - GPU type: NVIDIA RTX5880Ada
-- Num GPUS: 2
+- Num GPUs: 2
 
 Clone the repository:
 
@@ -42,6 +44,7 @@ Install all dependencies (replace `13.0` with your CUDA version, e.g., `12.8`). 
 ```bash
 bash setup.sh 13.0
 ```
+
 This will install PyTorch, xFormers, `diff-gaussian-rasterization`, `nvdiffrast`, and all Python requirements, then download the pretrained checkpoint.
 
 #### Backup (Only need if command `bash setup.sh 13.0` failed)
@@ -113,6 +116,7 @@ dataset_root/
 ## Training
 
 Review the `train.sh` script and modify it if necessary. For reproducibility, you only need to update the following variables to match your local environment:
+
 - `data_path`
 - `depth1_path`
 - `wandb_project_name`
