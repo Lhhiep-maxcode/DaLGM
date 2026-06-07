@@ -272,6 +272,14 @@ class ObjaverseDataset(Dataset):
             for view_id in output_view_ids:
                 image_path = os.path.join(item_path, 'rgb', f'{view_id:03d}.png')
                 image = cv2.imread(image_path, cv2.IMREAD_UNCHANGED)
+                alpha = image[:, :, 3]
+                bbox = self.find_nonzero_bbox(alpha)
+                if bbox is not None:
+                    ymin, ymax, xmin, xmax = bbox
+                    global_ymin = min(global_ymin, ymin)
+                    global_ymax = max(global_ymax, ymax)
+                    global_xmin = min(global_xmin, xmin)
+                    global_xmax = max(global_xmax, xmax)
                 c2w = torch.from_numpy(orbit_camera(
                     -(self.cam_config[view_id][0] - origin_elev),
                     (self.cam_config[view_id][1] - origin_azim),
