@@ -2,13 +2,13 @@
 set -e  # stop immediately if any command fails
 
 echo "========================================"
-echo " LGM-from-sratch environment setup"
+echo " DaLGM environment setup"
 echo "========================================"
 
 # -------- CONFIG --------
 CUDA_VERSION=${1:-13.0}
 TORCH_INDEX_URL="https://download.pytorch.org/whl/cu${CUDA_VERSION/./}"
-REPO_URL="https://github.com/Lhhiep-maxcode/LGM-from-sratch.git"
+REPO_URL="https://github.com/Lhhiep-maxcode/DaLGM.git"
 REPO_BRANCH="adaptive-LGM-with-depth"
 MODEL_URL="https://huggingface.co/Hiepppp/LGM/resolve/main/model_fp16_fixrot.safetensors"
 # ------------------------
@@ -16,7 +16,7 @@ MODEL_URL="https://huggingface.co/Hiepppp/LGM/resolve/main/model_fp16_fixrot.saf
 echo "[1/9] Install PyTorch + TorchVision"
 pip install torch torchvision --index-url $TORCH_INDEX_URL
 
-echo "[2/9] Clone LGM-from-sratch repository"
+echo "[2/9] Clone DaLGM repository"
 
 echo "Repository already exists, skipping clone"
 
@@ -35,7 +35,7 @@ echo "[5/9] Install diff-gaussian-rasterization"
 pip install ./diff-gaussian-rasterization --no-build-isolation
 
 echo "[6/9] Install nvdiffrast wheel"
-pip install ./wheels/nvdiffrast-0.3.3-py3-none-any.whl
+pip install git+https://github.com/NVlabs/nvdiffrast --no-build-isolation
 
 echo "[7/9] Install Python requirements"
 pip install -r requirements.txt
@@ -82,8 +82,4 @@ EOF
 
 echo "========================================"
 echo " ✅ Setup completed successfully!"
-echo " Next steps:"
-echo "   cd LGM-from-sratch"
-echo "   (activate your env if needed)"
-echo "   run your training script"
 echo "========================================"

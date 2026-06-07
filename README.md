@@ -43,7 +43,7 @@ conda activate dalgm
 Install all dependencies (replace `13.0` with your CUDA version, e.g., `12.8`). Currently, the installation script has been verified to work with CUDA 13.0 and CUDA 12.8.
 
 ```bash
-bash setup.sh 13.0
+bash setup_train.sh 13.0
 ```
 
 This will install PyTorch, xFormers, `diff-gaussian-rasterization`, `nvdiffrast`, and all Python requirements, then download the pretrained checkpoint.
@@ -202,8 +202,22 @@ kaggle datasets download laihoanghiep/100-abo-mesh-gt -p data/abo/mesh_gt --unzi
     - `000` - `007`: Side views with **30° elevation** and azimuth angles uniformly sampled from **0°** to **315°** (step size: **45°**)
     - `008` - `015`: Side views with **60° elevation** and azimuth angles uniformly sampled from **0°** to **315°** (step size: **45°**)
 
+### 3. Setup evaluation environment
+
+Create a new Conda environment for evaluation:
+
+```bash
+conda create -n dalgm_eval python=3.10 -y
+conda activate dalgm_eval
+```
+
+Install all dependencies (replace `13.0` with your CUDA version, e.g., `12.8`). Currently, the installation script has been verified to work with CUDA 13.0 and CUDA 12.8.
+
+```bash
+bash setup_eval.sh 13.0
+```
  
-### 3. Run evaluation
+### 4. Run evaluation
  
 Convert the exported Gaussians to meshes, then compute geometric metrics:
  
