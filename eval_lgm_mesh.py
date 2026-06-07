@@ -100,7 +100,7 @@ class MeshEvalConfig:
     znear: float = 0.5
     zfar: float = 2.5
 
-    depth_source: str = "eval"  # eval | input | none
+    depth_source: str = "none"  # eval | input | none
     save_preview_every: int = 1
     preview_only: bool = False
 
@@ -168,7 +168,7 @@ def parse_args() -> MeshEvalConfig:
     p.add_argument("--cam-radius", type=float, default=1.5)
     p.add_argument("--znear", type=float, default=0.5)
     p.add_argument("--zfar", type=float, default=2.5)
-    p.add_argument("--depth-source", choices=["eval", "input", "none"], default="eval")
+    p.add_argument("--depth-source", choices=["eval", "input", "none"], default="none")
 
     p.add_argument("--save-preview-every", type=int, default=1)
     p.add_argument("--preview-only", action="store_true")
@@ -393,16 +393,26 @@ class LGMMeshEvalDataset(torch.utils.data.Dataset):
                     for sub in sorted(os.listdir(root))
                     if os.path.isdir(os.path.join(root, sub))
                 )
-        if not subfolders:
-            raise FileNotFoundError("No valid depth root found. Pass --depth1-path at least, so the val split and object IDs can be recovered.")
+        self.has_depth = bool(subfolders)
 
         items = []
-        for sub in sorted(subfolders):
-            archive = os.path.basename(sub)
-            for item in sorted(os.listdir(sub)):
-                item_path = os.path.join(sub, item)
-                if os.path.isdir(os.path.join(item_path, "depth")):
-                    items.append((archive, item, item_path))
+        if self.has_depth:
+            for sub in sorted(subfolders):
+                archive = os.path.basename(sub)
+                for item in sorted(os.listdir(sub)):
+                    item_path = os.path.join(sub, item)
+                    if os.path.isdir(os.path.join(item_path, "depth")):
+                        items.append((archive, item, item_path))
+        else:
+            # Không có depth path → discover từ data_path
+            for archive in sorted(os.listdir(cfg.data_path)):
+                archive_path = os.path.join(cfg.data_path, archive)
+                if not os.path.isdir(archive_path):
+                    continue
+                for item in sorted(os.listdir(archive_path)):
+                    item_path = os.path.join(archive_path, item)
+                    if os.path.isdir(os.path.join(item_path, "rgb")):
+                        items.append((archive, item, item_path))
 
         if cfg.val_size > 0:
             items = items[-int(cfg.val_size * len(items)):]
@@ -521,7 +531,7 @@ class LGMMeshEvalDataset(torch.utils.data.Dataset):
 
         for view_id, (elev, azim) in zip(input_view_ids, input_camera_params):
             rgba = load_rgba_cv2(os.path.join(item_path, "rgb", f"{view_id:03d}.png"))
-            depth = load_depth_file(input_depth_dir, f"{view_id:03d}")
+            depth = load_depth_file(input_depth_dir, f"{view_id:03d}") if self.has_depth else torch.zeros(1, rgba.shape[1], rgba.shape[2])
             c2w = make_pose(elev, azim, self.cfg, origin_elev, origin_azim)
             bbox = find_nonzero_bbox(rgba[3].numpy())
             if bbox is not None:
@@ -576,7 +586,7 @@ class LGMMeshEvalDataset(torch.utils.data.Dataset):
             "cam_poses_output": torch.stack(output_poses, 0),
         }
 
-        if self.cfg.depth_source == "input":
+        if self.has_depth and self.cfg.depth_source == "input":
             depth_imgs, depth_masks = [], []
             for rgba, depth in zip(input_rgba, input_depths):
                 rgba = crop_img(rgba)
@@ -587,7 +597,7 @@ class LGMMeshEvalDataset(torch.utils.data.Dataset):
             result["gt_depths"] = torch.stack(depth_imgs, 0)
             result["depth_masks"] = torch.stack(depth_masks, 0)
             result["cam_poses_depth"] = torch.stack(input_poses, 0)
-        elif self.cfg.depth_source == "eval":
+        elif self.has_depth and self.cfg.depth_source == "eval":
             eval_depth_dir = self.resolve_eval_depth_dir(archive_name, item_name, eval_item_path)
             depth_imgs, depth_masks = [], []
             for view_idx, rgba in enumerate(output_rgba[: self.cfg.num_views_output]):
@@ -930,7 +940,7 @@ def run_one(sample: dict, renderer: NVDRMeshRenderer, cfg: MeshEvalConfig, idx: 
         "lpips": float(rgb_m["lpips"].detach().cpu()),
     })
 
-    if cfg.depth_source != "none":
+    if cfg.depth_source != "none" and "gt_depths" in sample:
         _, pred_depth, pred_alpha = renderer.render_many(tensors, sample["cam_poses_depth"], cfg.depth_render_size)
         gt_depth = sample["gt_depths"].to(cfg.device)
         depth_mask = sample["depth_masks"].to(cfg.device)
