@@ -93,9 +93,9 @@ unzip 10k-dataset-9-views-depth.zip -d 10k-dataset-9-views
 unzip 10k-dataset-9-views.zip -d 10k-dataset-9-views
 ```
 
-### 2. Data
+### 2. Training Data
 
-After success installation, the dataset follows this layout:
+After success installation, the training dataset follows this layout:
 
 ```
 dataset_root/
@@ -111,6 +111,9 @@ dataset_root/
 │           ├── 000.npz
 │           └── ...
 ```
+#### Naming convention:
+- `000`–`063`: Side views with **0° elevation** and azimuth angles uniformly sampled from **0°** to **354.375°** (step size: **5.625°**).
+- `064`: Top-down view with **90° elevation** and **180° azimuth**.
 
 ---
 
@@ -124,6 +127,8 @@ Review the `train.sh` script and modify it if necessary. For reproducibility, yo
 - `wandb_experiment_id` (can be set to `None`)
 - `wandb_experiment_name`
 - `wandb_key`
+
+**Optional**: If you want to try with different value of threshold for proposed pruning algorithm + weight value for depth ranking loss. Try to adjust `alpha_threshold`, `distance_threshold`, `scale_threshold`, `rot_threshold`, `rgb_threshold`, and `lambda_depth_rank`.
 
 Once the configuration is ready, start training with:
 
@@ -191,33 +196,14 @@ kaggle datasets download laihoanghiep/100-abo-16-views-for-eval -p data/abo/eval
 # Ground-truth meshes
 kaggle datasets download laihoanghiep/100-abo-mesh-gt -p data/abo/mesh_gt --unzip
 ```
+#### Naming Convention:
+- The input dataset for evaluation (`100-abo-rgb-input`, `100-gso-rgb-input`) follows convention as training dataset
+- The 16-view dataset for evaluation (`100-abo-16-views-for-eval`, `100-gso-16-views-for-eval`) follows convention as following:
+    - `000` - `007`: Side views with **30° elevation** and azimuth angles uniformly sampled from **0°** to **315°** (step size: **45°**)
+    - `008` - `015`: Side views with **60° elevation** and azimuth angles uniformly sampled from **0°** to **315°** (step size: **45°**)
+
  
 ### 3. Run evaluation
- 
-#### Gaussian-level evaluation
- 
-Render novel views directly from predicted Gaussians to compute image-quality metrics:
- 
-```bash
-python eval.py big \
-    --resume checkpoints/best-depthloss-depth-ranking-2/model.safetensors \
-    --fine_tune \
-    --data_path data/<benchmark>/rgb \
-    --eval_path data/<benchmark>/eval \
-    --workspace workspace/lgm_gaussian_eval_<benchmark> \
-    --val_size 1 \
-    --input_size 160 \
-    --splat_size 160 \
-    --output_size 512 \
-    --num_views_input 9 \
-    --num_views_output 16 \
-    --pixel_align \
-    --batch_size 2 \
-     --num_workers 4 \
-    --mixed_precision fp16
-```
- 
-#### Mesh-level evaluation
  
 Convert the exported Gaussians to meshes, then compute geometric metrics:
  
@@ -225,7 +211,7 @@ Convert the exported Gaussians to meshes, then compute geometric metrics:
 # Convert Gaussians to meshes
 python export_lgm_gaussians.py \
     --config big \
-    --resume checkpoints/best-depthloss-depth-ranking-2/model.safetensors \
+    --resume checkpoints/model.safetensors \
     --fine-tune \
     --data-path data/<benchmark>/rgb \
     --eval-path data/<benchmark>/eval \
@@ -279,3 +265,18 @@ python 3Dreconstruct_infer.py big \
 ```
  
 Edit the `path` variable at the bottom of `3Dreconstruct_infer.py` to point to your image folder. Expected folder layout: `rgb/000.png`, `rgb/001.png`, etc.
+
+## Citation
+
+If you find this work useful in your research, please cite:
+
+```bibtex
+@article{dalgm2026,
+  title={DaLGM: Depth-Aware Geometry Supervision and Efficient Gaussian Pruning for Feed-Forward 3D Reconstruction},
+  author={Hoang Hiep Lai and Duy Thanh Tran and Thanh Long Vu and Thi Chau Ma},
+  journal={The Visual Computer},
+  year={2026},
+  doi={xxxxxxxx},
+  note={Under review}
+}
+```
