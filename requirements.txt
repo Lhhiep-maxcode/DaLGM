@@ -33,3 +33,4 @@ ninja
 wandb
 opencv-python
 PyDrive2
+torchmetrics

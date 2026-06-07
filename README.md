@@ -122,6 +122,7 @@ Review the `train.sh` script and modify it if necessary. For reproducibility, yo
 - `depth1_path`
 - `wandb_project_name`
 - `wandb_experiment_id` (can be set to `None`)
+- `wandb_experiment_name`
 - `wandb_key`
 
 Once the configuration is ready, start training with:
