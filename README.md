@@ -153,74 +153,128 @@ accelerate launch --config_file accelerate_configs/gpu2.yaml main.py big \
 ---
 
 ## IV. Evaluation
+ 
+We evaluate on two benchmarks: **GSO** and **ABO**. The pipeline has two evaluation levels.
+ 
+### 1. Download the best checkpoint
+ 
+```bash
+pip install kaggle
+kaggle datasets download memaybeo12/best-depthloss-depth-ranking-2 -p checkpoints --unzip
+```
+ 
+### 2. Download evaluation data
+ 
+#### GSO
 
-### Gaussian-level eval (PSNR / SSIM / LPIPS)
+```bash
+# RGB input views
+kaggle datasets download laihoanghiep/100-gso-rgba-input -p data/gso/rgb --unzip
 
+# Novel views
+kaggle datasets download laihoanghiep/100-gso-16-views-for-eval -p data/gso/eval --unzip
+
+# Ground-truth meshes
+kaggle datasets download laihoanghiep/100-gso-mesh-gt -p data/gso/mesh_gt --unzip
+```
+
+#### ABO
+
+```bash
+# RGB input views
+kaggle datasets download laihoanghiep/100-abo-rgb-input -p data/abo/rgb --unzip
+
+# Novel views
+kaggle datasets download laihoanghiep/100-abo-16-views-for-eval -p data/abo/eval --unzip
+
+# Ground-truth meshes
+kaggle datasets download laihoanghiep/100-abo-mesh-gt -p data/abo/mesh_gt --unzip
+```
+ 
+### 3. Run evaluation
+ 
+#### Gaussian-level evaluation
+ 
+Render novel views directly from predicted Gaussians to compute image-quality metrics:
+ 
 ```bash
 python eval.py big \
-    --resume /path/to/checkpoint.safetensors --fine_tune \
-    --data_path /path/to/dataset \
-    --depth1_path /path/to/depth_dataset \
-    --workspace eval_output \
-    --pixel_align --input_size 160 --splat_size 160
+    --resume checkpoints/best-depthloss-depth-ranking-2/model.safetensors \
+    --fine_tune \
+    --data_path data/<benchmark>/rgb \
+    --eval_path data/<benchmark>/eval \
+    --workspace workspace/lgm_gaussian_eval_<benchmark> \
+    --val_size 1 \
+    --input_size 160 \
+    --splat_size 160 \
+    --output_size 512 \
+    --num_views_input 9 \
+    --num_views_output 16 \
+    --pixel_align \
+    --batch_size 2 \
+     --num_workers 4 \
+    --mixed_precision fp16
 ```
-
-### Mesh-level eval (RGB + depth + Chamfer Distance)
-
-**Step 1 — Export Gaussians to .ply:**
-
+ 
+#### Mesh-level evaluation
+ 
+Convert the exported Gaussians to meshes, then compute geometric metrics:
+ 
 ```bash
+# Convert Gaussians to meshes
 python export_lgm_gaussians.py \
     --config big \
-    --resume /path/to/checkpoint.safetensors --fine-tune \
-    --data-path /path/to/dataset \
-    --depth1-path /path/to/depth_dataset \
-    --eval-path /path/to/eval_dataset \
-    --outdir workspace/lgm_assets \
-    --pixel-align --input-size 160 --splat-size 160
-```
-
-**Step 2 — Convert .ply to .glb:**
-
-```bash
-python batch_convert_lgm_ply_to_glb.py \
-    --config big \
-    --ply-root workspace/lgm_assets/meshes \
-    --nerf-iters 512 --mesh-iters 2048 --uv-iters 512
-```
-
-**Step 3 — Evaluate meshes:**
-
-```bash
+    --resume checkpoints/best-depthloss-depth-ranking-2/model.safetensors \
+    --fine-tune \
+    --data-path data/<benchmark>/rgb \
+    --eval-path data/<benchmark>/eval \
+    --outdir workspace/lgm_mesh_assets_<benchmark> \
+    --val-size 1 \
+    --input-size 160 \
+    --splat-size 160 \
+    --output-size 512 \
+    --num-views-input 9 \
+    --num-views-output 16 \
+    --pixel-align \
+    --batch-size 2 \
+    --num-workers 4 \
+    --mixed-precision fp16 \
+    --convert \
+    --nerf-iters 512 \
+    --mesh-iters 1024 \
+    --uv-iters 0
+ 
+# Compute mesh metrics
 python eval_lgm_mesh.py \
-    --data-path /path/to/dataset \
-    --depth1-path /path/to/depth_dataset \
-    --eval-path /path/to/eval_dataset \
-    --mesh-path workspace/lgm_assets/meshes \
-    --outdir workspace/lgm_mesh_eval \
-    --depth-source eval
+    --data-path data/<benchmark>/rgb \
+    --eval-path data/<benchmark>/eval \
+    --mesh-path workspace/lgm_mesh_assets_<benchmark>/meshes \
+    --gt-mesh-path data/<benchmark>/mesh_gt \
+    --outdir workspace/lgm_mesh_eval_<benchmark> \
+    --val-size 1 \
+    --input-size 160 \
+    --splat-size 160 \
+    --output-size 512 \
+    --depth-render-size 512 \
+    --num-views-input 9 \
+    --num-views-output 16 \
+    --pixel-align \
+    --batch-size 1 \
+    --depth-source eval \
+    --flip-uv-y
 ```
-
+  
 ---
-
+ 
 ## V. Inference
-
+ 
 ### From real multi-view images (3D reconstruction)
-
+ 
 ```bash
 python 3Dreconstruct_infer.py big \
-    --resume pretrained/model_fp16_fixrot.safetensors --fine_tune \
+    --resume checkpoints/best-depthloss-depth-ranking-2/model.safetensors --fine_tune \
     --workspace output/ \
     --pixel_align --input_size 160 --splat_size 160
 ```
-
+ 
 Edit the `path` variable at the bottom of `3Dreconstruct_infer.py` to point to your image folder. Expected folder layout: `rgb/000.png`, `rgb/001.png`, etc.
-
-### From text prompt (3D generation via MVDream)
-
-```bash
-python 3Dgen_infer.py big \
-    --resume pretrained/model_fp16_fixrot.safetensors \
-    --test_path /path/to/image.png \
-    --workspace output/
-```
