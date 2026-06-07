@@ -32,6 +32,7 @@ class Options:
     depth2_path: Optional[str] = None
     depth3_path: Optional[str] = None
     depth4_path: Optional[str] = None
+    eval_path: str = '/kaggle/input/10k-dataset-9-views'
     # data mode (only support s3 now)
     data_mode: Literal['s3'] = 's3'
     # Field of view in y direction of the dataset   
