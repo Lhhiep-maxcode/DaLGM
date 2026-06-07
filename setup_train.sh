@@ -35,7 +35,7 @@ echo "[5/9] Install diff-gaussian-rasterization"
 pip install ./diff-gaussian-rasterization --no-build-isolation
 
 echo "[6/9] Install nvdiffrast wheel"
-pip install git+https://github.com/NVlabs/nvdiffrast --no-build-isolation
+pip install ./wheels/nvdiffrast-0.3.3-py3-none-any.whl
 
 echo "[7/9] Install Python requirements"
 pip install -r requirements.txt

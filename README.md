@@ -36,8 +36,8 @@ cd DaLGM
 Create and activate a Conda environment:
 
 ```bash
-conda create -n dalgm python=3.12 -y
-conda activate dalgm
+conda create -n dalgm_train python=3.12 -y
+conda activate dalgm_train
 ```
 
 Install all dependencies (replace `13.0` with your CUDA version, e.g., `12.8`). Currently, the installation script has been verified to work with CUDA 13.0 and CUDA 12.8.
@@ -48,7 +48,7 @@ bash setup_train.sh 13.0
 
 This will install PyTorch, xFormers, `diff-gaussian-rasterization`, `nvdiffrast`, and all Python requirements, then download the pretrained checkpoint.
 
-#### Backup (Only need if command `bash setup.sh 13.0` failed)
+#### Backup (Only need if command `bash setup_train.sh 13.0` failed)
 
 Manual install if needed:
 
@@ -204,7 +204,8 @@ kaggle datasets download laihoanghiep/100-abo-mesh-gt -p data/abo/mesh_gt --unzi
 
 ### 3. Setup evaluation environment
 
-Create a new Conda environment for evaluation:
+From now on, create a new Conda environment for evaluation 
+(Note that step 1 and 2 use the same `dalgm_train` environment from training to utilize the kaggle library for downloading datasets):
 
 ```bash
 conda create -n dalgm_eval python=3.10 -y
