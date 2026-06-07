@@ -247,7 +247,6 @@ python eval_lgm_mesh.py \
     --num-views-output 16 \
     --pixel-align \
     --batch-size 1 \
-    --depth-source eval \
     --flip-uv-y
 ```
   
