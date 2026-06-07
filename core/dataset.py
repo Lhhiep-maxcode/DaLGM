@@ -61,11 +61,20 @@ class ObjaverseDataset(Dataset):
                           if os.path.isdir(os.path.join(depth4_path, sub))])
         
         self.items_depth = []
-
-        for sub in self.subfolder_depth:
-            for item in os.listdir(sub):
-                item_path = os.path.join(sub, item)
-                self.items_depth.append(item_path)
+        if self.subfolder_depth:
+            for sub in self.subfolder_depth:
+                for item in os.listdir(sub):
+                    item_path = os.path.join(sub, item)
+                    self.items_depth.append(item_path)
+        else:
+            for archive in sorted(os.listdir(self.data_path)):
+                archive_path = os.path.join(self.data_path, archive)
+                if not os.path.isdir(archive_path):
+                    continue
+                for item in sorted(os.listdir(archive_path)):
+                    item_path = os.path.join(archive_path, item)
+                    if os.path.isdir(os.path.join(item_path, 'rgb')):
+                        self.items_depth.append(item_path)
 
         # naive split
         if self.type == 'val':
@@ -196,11 +205,25 @@ class ObjaverseDataset(Dataset):
             global_xmin = min(global_xmin, xmin)
             global_xmax = max(global_xmax, xmax)
 
-            try:
-                depth = torch.from_numpy(np.load(os.path.join(item_depth_path, 'depth', f'{view_id:03d}.npz'))['depth'])
-            except:
-                depth = torch.from_numpy(np.load(os.path.join(item_depth_path, 'depth', f'{view_id:03d}.npy')))
-            depth = depth.unsqueeze(0)  # [1, H, W]
+            has_depth = bool(self.subfolder_depth)
+
+            if has_depth:
+                npz_path = os.path.join(item_depth_path, 'depth', f'{view_id:03d}.npz')
+                npy_path = os.path.join(item_depth_path, 'depth', f'{view_id:03d}.npy')
+                if os.path.exists(npz_path):
+                    raw = np.load(npz_path)
+                    if 'depth' in raw:
+                        depth = torch.from_numpy(raw['depth'])
+                    elif 'data' in raw:
+                        depth = torch.from_numpy(raw['data'])
+                    else:
+                        raise KeyError(f"npz has neither 'depth' nor 'data' key, got: {list(raw.keys())}")
+                else:
+                    depth = torch.from_numpy(np.load(npy_path))
+                depth = depth.unsqueeze(0)  # [1, H, W]
+            else:
+                H_img = images[0]
+                depth = torch.zeros(1, H_img, H_img)
 
             image = image.astype(np.float32) / 255.0
             image = torch.from_numpy(image)
