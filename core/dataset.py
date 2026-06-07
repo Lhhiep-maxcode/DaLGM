@@ -123,16 +123,17 @@ class ObjaverseDataset(Dataset):
         return ys.min(), ys.max(), xs.min(), xs.max()
 
     def _resolve_eval_item_path(self, archive_name, item_name):
-        """Tìm thư mục item trong eval_path, xử lý trường hợp archive name khác nhau."""
-        # Trường hợp 1: cùng archive name
+        if self.eval_path is None:
+            return None
+        # same archive name
         p = os.path.join(self.eval_path, archive_name, item_name)
         if os.path.isdir(os.path.join(p, "rgb")):
             return p
-        # Trường hợp 2: thẳng dưới eval_path (không có archive)
+        # directly under eval_path (no archive)
         p = os.path.join(self.eval_path, item_name)
         if os.path.isdir(os.path.join(p, "rgb")):
             return p
-        # Trường hợp 3: search tất cả archive con trong eval_path
+        # search all sub archives in eval_path
         for a in sorted(os.listdir(self.eval_path)):
             cand = os.path.join(self.eval_path, a, item_name)
             if os.path.isdir(os.path.join(cand, "rgb")):
@@ -180,6 +181,7 @@ class ObjaverseDataset(Dataset):
         global_ymin, global_ymax = 1e9, -1
         global_xmin, global_xmax = 1e9, -1
 
+
         for view_id in input_view_ids:
             image_path = os.path.join(item_path, 'rgb', f'{view_id:03d}.png')
             image = cv2.imread(image_path, cv2.IMREAD_UNCHANGED)  # [H, W, 4]
@@ -224,42 +226,74 @@ class ObjaverseDataset(Dataset):
         # ------------------------------------------------------------------ #
         # load output views from eval_path
         # ------------------------------------------------------------------ #
-        eval_images = []
-        eval_masks = []
-        eval_cam_poses = []
+        if self.eval_path is not None:
+            eval_images = []
+            eval_masks = []
+            eval_cam_poses = []
 
-        eval_item_path = self._resolve_eval_item_path(archive_name, item_name)
+            eval_item_path = self._resolve_eval_item_path(archive_name, item_name)
 
-        for view_idx, (elev, azim) in enumerate(self.eval_camera_params):
-            image_path = os.path.join(eval_item_path, 'rgb', f'{view_idx:03d}.png')
-            image = cv2.imread(image_path, cv2.IMREAD_UNCHANGED)  # [H, W, 4]
+            for view_idx, (elev, azim) in enumerate(self.eval_camera_params):
+                image_path = os.path.join(eval_item_path, 'rgb', f'{view_idx:03d}.png')
+                image = cv2.imread(image_path, cv2.IMREAD_UNCHANGED)  # [H, W, 4]
 
-            alpha = image[:, :, 3]
-            bbox = self.find_nonzero_bbox(alpha)
-            if bbox is not None:
-                ymin, ymax, xmin, xmax = bbox
-                global_ymin = min(global_ymin, ymin)
-                global_ymax = max(global_ymax, ymax)
-                global_xmin = min(global_xmin, xmin)
-                global_xmax = max(global_xmax, xmax)
+                alpha = image[:, :, 3]
+                bbox = self.find_nonzero_bbox(alpha)
+                if bbox is not None:
+                    ymin, ymax, xmin, xmax = bbox
+                    global_ymin = min(global_ymin, ymin)
+                    global_ymax = max(global_ymax, ymax)
+                    global_xmin = min(global_xmin, xmin)
+                    global_xmax = max(global_xmax, xmax)
 
-            c2w = torch.from_numpy(orbit_camera(
-                -(elev - origin_elev),
-                (azim - origin_azim),
-                radius=self.cfg.cam_radius,
-                opengl=True
-            ))
-            c2w[:3, 3] *= self.cfg.cam_radius / 1.5
+                c2w = torch.from_numpy(orbit_camera(
+                    -(elev - origin_elev),
+                    (azim - origin_azim),
+                    radius=self.cfg.cam_radius,
+                    opengl=True
+                ))
+                c2w[:3, 3] *= self.cfg.cam_radius / 1.5
 
-            image = image.astype(np.float32) / 255.0
-            image = torch.from_numpy(image).permute(2, 0, 1)   # [4, H, W]
-            mask = image[3:4]
-            image = image[:3] * mask + (1 - mask)
-            image = image[[2, 1, 0]].contiguous()
+                image = image.astype(np.float32) / 255.0
+                image = torch.from_numpy(image).permute(2, 0, 1)   # [4, H, W]
+                mask = image[3:4]
+                image = image[:3] * mask + (1 - mask)
+                image = image[[2, 1, 0]].contiguous()
 
-            eval_images.append(image)
-            eval_masks.append(mask.squeeze(0))
-            eval_cam_poses.append(c2w)
+                eval_images.append(image)
+                eval_masks.append(mask.squeeze(0))
+                eval_cam_poses.append(c2w)
+        else:
+            # Fallback: random output views from data_path (for training)
+            eval_images = []
+            eval_masks = []
+            eval_cam_poses = []
+            output_view_ids = np.random.permutation(self.test_view_ids).tolist()[:self.cfg.num_views_output]
+            for view_id in output_view_ids:
+                image_path = os.path.join(item_path, 'rgb', f'{view_id:03d}.png')
+                image = cv2.imread(image_path, cv2.IMREAD_UNCHANGED)
+                alpha = image[:, :, 3]
+                bbox = self.find_nonzero_bbox(alpha)
+                if bbox is not None:
+                    ymin, ymax, xmin, xmax = bbox
+                    global_ymin = min(global_ymin, ymin)
+                    global_ymax = max(global_ymax, ymax)
+                    global_xmin = min(global_xmin, xmin)
+                    global_xmax = max(global_xmax, xmax)
+                c2w = torch.from_numpy(orbit_camera(
+                    -(self.cam_config[view_id][0] - origin_elev),
+                    (self.cam_config[view_id][1] - origin_azim),
+                    radius=self.cfg.cam_radius, opengl=True
+                ))
+                c2w[:3, 3] *= self.cfg.cam_radius / 1.5
+                image = image.astype(np.float32) / 255.0
+                image = torch.from_numpy(image).permute(2, 0, 1)
+                mask = image[3:4]
+                image = image[:3] * mask + (1 - mask)
+                image = image[[2, 1, 0]].contiguous()
+                eval_images.append(image)
+                eval_masks.append(mask.squeeze(0))
+                eval_cam_poses.append(c2w)
 
         # ------------------------------------------------------------------ #
         # shared crop
