@@ -222,7 +222,7 @@ class ObjaverseDataset(Dataset):
                     depth = torch.from_numpy(np.load(npy_path))
                 depth = depth.unsqueeze(0)  # [1, H, W]
             else:
-                H_img = images[0]
+                H_img = image.shape[0]
                 depth = torch.zeros(1, H_img, H_img)
 
             image = image.astype(np.float32) / 255.0
