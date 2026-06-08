@@ -176,8 +176,12 @@ class ObjaverseDataset(Dataset):
             view_ids += view_ids[-(self.cfg.num_views_input - len(self.certain_input_view_ids) - num_bonus_views):]
         input_view_ids = sorted(view_ids[:self.cfg.num_views_input])
 
-        origin_elev = self.cam_config[input_view_ids[0]][0]
-        origin_azim = self.cam_config[input_view_ids[0]][1]
+        if self.type in ('val', 'test'):
+            origin_elev = 0.0
+            origin_azim = 0.0
+        else:
+            origin_elev = self.cam_config[input_view_ids[0]][0]
+            origin_azim = self.cam_config[input_view_ids[0]][1]
 
         # ------------------------------------------------------------------ #
         # load input views from data_path
