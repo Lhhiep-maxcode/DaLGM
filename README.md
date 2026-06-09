@@ -36,14 +36,14 @@ cd DaLGM
 Create and activate a Conda environment:
 
 ```bash
-conda create -n dalgm_train python=3.12 -y
-conda activate dalgm_train
+conda create -n dalgm python=3.12 -y
+conda activate dalgm
 ```
 
 Install all dependencies (replace `13.0` with your CUDA version, e.g., `12.8`). Currently, the installation script has been verified to work with CUDA 13.0 and CUDA 12.8.
 
 ```bash
-bash setup_train.sh 13.0
+bash setup.sh 13.0
 ```
 
 This will install PyTorch, xFormers, `diff-gaussian-rasterization`, `nvdiffrast`, and all Python requirements, then download the pretrained checkpoint.
@@ -151,29 +151,20 @@ kaggle datasets download laihoanghiep/100-abo-16-views-for-eval -p data/abo/eval
 # Ground-truth meshes
 kaggle datasets download laihoanghiep/100-abo-mesh-gt -p data/abo/mesh_gt --unzip
 ```
+
 #### Naming Convention:
 - The input dataset for evaluation (`100-abo-rgb-input`, `100-gso-rgb-input`) follows convention as training dataset
 - The 16-view dataset for evaluation (`100-abo-16-views-for-eval`, `100-gso-16-views-for-eval`) follows convention as following:
     - `000` - `007`: Side views with **30° elevation** and azimuth angles uniformly sampled from **0°** to **315°** (step size: **45°**)
     - `008` - `015`: Side views with **60° elevation** and azimuth angles uniformly sampled from **0°** to **315°** (step size: **45°**)
 
-### 3. Setup evaluation environment
+### 3. Run evaluation
 
-From now on, create a new Conda environment for evaluation 
-(Note that step 1 and 2 use the same `dalgm_train` environment from training to utilize the kaggle library for downloading datasets):
-
-```bash
-conda create -n dalgm_eval python=3.10 -y
-conda activate dalgm_eval
-```
-
-Install all dependencies (replace `13.0` with your CUDA version, e.g., `12.8`). Currently, the installation script has been verified to work with CUDA 13.0 and CUDA 12.8.
+Make sure you are using the `dalgm` environment:
 
 ```bash
-bash setup_eval.sh 13.0
+conda activate dalgm
 ```
- 
-### 4. Run evaluation
  
 Convert the exported Gaussians to meshes, then compute geometric metrics:
  
