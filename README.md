@@ -21,7 +21,7 @@ The pipeline takes multi-view RGB images of an object as input, predicts a set o
 
 Recommend for reproduciblity:
 
-- **CUDA version**: 13.0 or 12.8
+- **CUDA version**: 13.0 (we have tested with CUDA 13.0, others may work but not verified)
 - **GPU type**: NVIDIA RTX5880Ada
 - **Num GPUs**: 2
 - **Min available space**: 190 GB
@@ -40,7 +40,7 @@ conda create -n dalgm python=3.12 -y
 conda activate dalgm
 ```
 
-Install all dependencies (replace `13.0` with your CUDA version, e.g., `12.8`). Currently, the installation script has been verified to work with CUDA 13.0 and CUDA 12.8.
+Install all dependencies (replace `13.0` with your CUDA version, e.g., `12.8`). Currently, the installation script has been verified to work with CUDA 13.0.
 
 ```bash
 bash setup.sh 13.0
@@ -166,7 +166,7 @@ Make sure you are using the `dalgm` environment:
 conda activate dalgm
 ```
  
-Convert the exported Gaussians to meshes, then compute geometric metrics:
+Convert the exported Gaussians to meshes, then compute geometric metrics. Replace `<benchmark>` with `gso` or `abo` depending on which benchmark you want to evaluate on.
  
 ```bash
 # Convert Gaussians to meshes
