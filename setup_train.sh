@@ -35,7 +35,7 @@ echo "[5/9] Install diff-gaussian-rasterization"
 pip install ./diff-gaussian-rasterization --no-build-isolation
 
 echo "[6/9] Install nvdiffrast wheel"
-pip install ./wheels/nvdiffrast-0.3.3-py3-none-any.whl
+pip install git+https://github.com/NVlabs/nvdiffrast --no-build-isolation
 
 echo "[7/9] Install Python requirements"
 pip install -r requirements.txt
@@ -66,11 +66,12 @@ pip install kaggle
 echo "Download depth data from Kaggle"
 mkdir 10k-dataset-9-views
 kaggle datasets download laihoanghiep/10k-dataset-9-views-depth
-kaggle datasets download laihoanghiep/10k-dataset-9-views
-
 unzip 10k-dataset-9-views-depth.zip -d 10k-dataset-9-views
-unzip 10k-dataset-9-views.zip -d 10k-dataset-9-views
+rm 10k-dataset-9-views-depth.zip
 
+kaggle datasets download laihoanghiep/10k-dataset-9-views
+unzip 10k-dataset-9-views.zip -d 10k-dataset-9-views
+rm 10k-dataset-9-views.zip
 
 python - <<EOF
 import torch

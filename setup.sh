@@ -71,9 +71,12 @@ echo "[9/9] Download data from Kaggle"
 pip install kaggle
 mkdir -p 10k-dataset-9-views
 kaggle datasets download laihoanghiep/10k-dataset-9-views-depth
-kaggle datasets download laihoanghiep/10k-dataset-9-views
 unzip 10k-dataset-9-views-depth.zip -d 10k-dataset-9-views
+rm 10k-dataset-9-views-depth.zip
+
+kaggle datasets download laihoanghiep/10k-dataset-9-views
 unzip 10k-dataset-9-views.zip -d 10k-dataset-9-views
+rm 10k-dataset-9-views.zip
 
 echo "========================================"
 echo " Verify installation"
