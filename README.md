@@ -226,7 +226,8 @@ python 3Dreconstruct_infer.py big \
  
 Edit the `path` variable at the bottom of `3Dreconstruct_infer.py` to point to your image folder. Expected folder layout: `rgb/000.png`, `rgb/001.png`, etc.
 
-## Citation
+## Citation [![DOI](https://zenodo.org/badge/1009343173.svg)](https://doi.org/10.5281/zenodo.20615413)
+
 
 If you find this work useful in your research, please cite:
 
@@ -236,7 +237,7 @@ If you find this work useful in your research, please cite:
   author={Hoang Hiep Lai and Duy Thanh Tran and Thanh Long Vu and Thi Chau Ma},
   journal={The Visual Computer},
   year={2026},
-  doi={xxxxxxxx},
+  doi={https://doi.org/10.5281/zenodo.20615413},
   note={Under review}
 }
 ```
