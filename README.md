@@ -66,7 +66,9 @@ dataset_root/
 │           ├── 000.npz
 │           └── ...
 ```
+
 #### Naming convention:
+
 - `000`–`063`: Side views with **0° elevation** and azimuth angles uniformly sampled from **0°** to **354.375°** (step size: **5.625°**).
 - `064`: Top-down view with **90° elevation** and **180° azimuth**.
 
@@ -114,18 +116,18 @@ accelerate launch --config_file accelerate_configs/gpu2.yaml main.py big \
 ---
 
 ## IV. Evaluation
- 
+
 We evaluate on two benchmarks: **GSO** and **ABO**. The pipeline has two evaluation levels.
- 
+
 ### 1. Download the best checkpoint
- 
+
 ```bash
 pip install kaggle
 kaggle datasets download memaybeo12/best-depthloss-depth-ranking-2 -p checkpoints --unzip
 ```
- 
+
 ### 2. Download evaluation data
- 
+
 #### GSO
 
 ```bash
@@ -153,10 +155,11 @@ kaggle datasets download laihoanghiep/100-abo-mesh-gt -p data/abo/mesh_gt --unzi
 ```
 
 #### Naming Convention:
+
 - The input dataset for evaluation (`100-abo-rgb-input`, `100-gso-rgb-input`) follows convention as training dataset
 - The 16-view dataset for evaluation (`100-abo-16-views-for-eval`, `100-gso-16-views-for-eval`) follows convention as following:
-    - `000` - `007`: Side views with **30° elevation** and azimuth angles uniformly sampled from **0°** to **315°** (step size: **45°**)
-    - `008` - `015`: Side views with **60° elevation** and azimuth angles uniformly sampled from **0°** to **315°** (step size: **45°**)
+  - `000` - `007`: Side views with **30° elevation** and azimuth angles uniformly sampled from **0°** to **315°** (step size: **45°**)
+  - `008` - `015`: Side views with **60° elevation** and azimuth angles uniformly sampled from **0°** to **315°** (step size: **45°**)
 
 ### 3. Run evaluation
 
@@ -165,9 +168,9 @@ Make sure you are using the `dalgm` environment:
 ```bash
 conda activate dalgm
 ```
- 
+
 Convert the exported Gaussians to meshes, then compute geometric metrics. Replace `<benchmark>` with `gso` or `abo` depending on which benchmark you want to evaluate on.
- 
+
 ```bash
 # Convert Gaussians to meshes
 python export_lgm_gaussians.py \
@@ -191,7 +194,7 @@ python export_lgm_gaussians.py \
     --nerf-iters 512 \
     --mesh-iters 1024 \
     --uv-iters 0
- 
+
 # Compute mesh metrics
 python eval_lgm_mesh.py \
     --data-path data/<benchmark>/rgb \
@@ -210,24 +213,25 @@ python eval_lgm_mesh.py \
     --batch-size 1 \
     --flip-uv-y
 ```
-  
+
 ---
- 
+
 ## V. Inference
- 
+
 ### From real multi-view images (3D reconstruction)
- 
+
 ```bash
 python 3Dreconstruct_infer.py big \
     --resume checkpoints/best-depthloss-depth-ranking-2/model.safetensors --fine_tune \
     --workspace output/ \
     --pixel_align --input_size 160 --splat_size 160
 ```
- 
+
 Edit the `path` variable at the bottom of `3Dreconstruct_infer.py` to point to your image folder. Expected folder layout: `rgb/000.png`, `rgb/001.png`, etc.
 
-## Citation [![DOI](https://zenodo.org/badge/1009343173.svg)](https://doi.org/10.5281/zenodo.20615413)
+## Citation
 
+[![DOI](https://zenodo.org/badge/1009343173.svg)](https://doi.org/10.5281/zenodo.20615413)
 
 If you find this work useful in your research, please cite:
 
