@@ -8,9 +8,7 @@ echo "========================================"
 # -------- CONFIG --------
 CUDA_VERSION=${1:-13.0}
 TORCH_INDEX_URL="https://download.pytorch.org/whl/cu${CUDA_VERSION/./}"
-WORKSPACE="${WORKSPACE:-/workspace}"
 REPO_URL="https://github.com/Lhhiep-maxcode/DaLGM.git"
-REPO_BRANCH="adaptive-LGM-with-depth"
 MODEL_URL="https://huggingface.co/Hiepppp/LGM/resolve/main/model_fp16_fixrot.safetensors"
 # ------------------------
 
@@ -22,13 +20,6 @@ apt-get install -y \
     libopengl0
 
 echo "[2/9] Python environment"
-if [ -f /venv/main/bin/activate ]; then
-    source /venv/main/bin/activate
-    echo "Activated /venv/main"
-else
-    echo "No /venv/main found; using current Python."
-fi
-python -V && which python
 pip install --upgrade pip setuptools wheel
 
 echo "[3/9] Install PyTorch + TorchVision"
@@ -38,12 +29,12 @@ echo "[4/9] Install xFormers"
 pip install xformers --index-url "$TORCH_INDEX_URL"
 
 echo "[5/9] Install diff-gaussian-rasterization"
-if [ ! -d "$WORKSPACE/diff-gaussian-rasterization/.git" ]; then
-    git clone --recursive https://github.com/ashawkey/diff-gaussian-rasterization "$WORKSPACE/diff-gaussian-rasterization"
+if [ ! -d "diff-gaussian-rasterization" ]; then
+    git clone --recursive https://github.com/ashawkey/diff-gaussian-rasterization
 else
     echo "diff-gaussian-rasterization already exists, skipping clone"
 fi
-pip install "$WORKSPACE/diff-gaussian-rasterization" --no-build-isolation
+pip install ./diff-gaussian-rasterization --no-build-isolation
 
 echo "[6/9] Install nvdiffrast from source"
 pip uninstall nvdiffrast -y || true
@@ -51,12 +42,21 @@ pip install git+https://github.com/NVlabs/nvdiffrast --no-build-isolation
 
 echo "[7/9] Install Python requirements"
 pip install -r requirements.txt
-pip install torchmetrics
+
+# Patch nerfacc for CUDA 13.0 / C++20 compatibility
+NERFACC_MATH=$(python -c "import nerfacc; import os; print(os.path.join(os.path.dirname(nerfacc.__file__), 'cuda/csrc/include/utils_math.cuh'))")
+if [ -f "$NERFACC_MATH" ]; then
+    sed -i 's/inline __device__ __host__ float lerp(float a, float b, float t)/inline __device__ __host__ float nerfacc_lerp(float a, float b, float t)/g' "$NERFACC_MATH"
+    echo "Patched nerfacc utils_math.cuh"
+else
+    echo "[WARN] nerfacc utils_math.cuh not found at $NERFACC_MATH"
+fi
+rm -rf /root/.cache/torch_extensions/*/nerfacc_cuda
 
 echo "[8/9] Download pretrained model"
 mkdir -p pretrained && cd pretrained
 if [ ! -f "model_fp16_fixrot.safetensors" ]; then
-    wget "$MODEL_URL"
+    wget $MODEL_URL
 else
     echo "Pretrained model already exists, skipping download"
 fi
