@@ -50,7 +50,7 @@ This will install PyTorch, xFormers, `diff-gaussian-rasterization`, `nvdiffrast`
 
 ### 2. Training Data
 
-After success installation, the training dataset follows this layout:
+The training dataset is constructed from 10,000 objects sampled from Objaverse. We preprocess the original 3D assets into multi-view RGB images and corresponding depth maps following our rendering pipeline. After successful installation from step `1. Install dependencies`, the dataset should follow the structure below:
 
 ```
 dataset_root/
